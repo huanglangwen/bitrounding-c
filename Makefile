@@ -37,13 +37,13 @@ OBJECTS = $(SOURCES:.c=.o)
 HEADERS = $(SRCDIR)/bit_pattern.h
 
 # Bitrounding source files
-BITROUNDING_SOURCES = $(SRCDIR)/bitrounding.c $(SRCDIR)/bitrounding_stats.c $(SRCDIR)/bitrounding_bitinfo.c
+BITROUNDING_SOURCES = $(SRCDIR)/netcdf_bit_rounding.c $(SRCDIR)/bitrounding_stats.c $(SRCDIR)/bitrounding_bitinfo.c
 BITROUNDING_OBJECTS = $(BITROUNDING_SOURCES:.c=.o)
 BITROUNDING_HEADERS = $(SRCDIR)/bitrounding_stats.h $(SRCDIR)/bitrounding_bitinfo.h
 
 # Target executables
 TARGET = netcdf_bit_analysis
-BITROUNDING_TARGET = bitrounding
+BITROUNDING_TARGET = netcdf_bit_rounding
 
 # Build rules
 all: $(TARGET) $(BITROUNDING_TARGET)

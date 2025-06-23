@@ -45,3 +45,6 @@
   ```bash
   source /capstor/scratch/cscs/lhuang/cdo/spack/share/spack/setup-env.sh && export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/cdo/.spack
   ```
+
+## Testing Scripts
+- Record the testing script

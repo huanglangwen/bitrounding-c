@@ -4,7 +4,7 @@ A collection of tools for analyzing NetCDF files, compression characteristics, b
 
 ## Tools Overview
 
-### 1. `bitrounding` (C Implementation)
+### 1. `netcdf_bit_rounding` (C Implementation)
 High-performance C implementation of bitrounding algorithm for NetCDF files with compression support.
 
 **Features:**
@@ -81,18 +81,18 @@ source /code/venv/bin/activate
 
 ## Usage
 
-### Bitrounding (C Implementation)
+### NetCDF Bit Rounding (C Implementation)
 
 ```bash
 # Basic usage
-./bitrounding <inflevel> <input.nc> <output.nc>
+./netcdf_bit_rounding <inflevel> <input.nc> <output.nc>
 
 # With compression
-./bitrounding <inflevel> <input.nc> <output.nc> --complevel=9
+./netcdf_bit_rounding <inflevel> <input.nc> <output.nc> --complevel=9
 
 # Examples
-./bitrounding 0.99 input.nc output.nc
-./bitrounding 0.9999 input.nc compressed_output.nc --complevel=6
+./netcdf_bit_rounding 0.99 input.nc output.nc
+./netcdf_bit_rounding 0.9999 input.nc compressed_output.nc --complevel=6
 ```
 
 **Parameters:**
