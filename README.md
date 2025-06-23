@@ -1,10 +1,27 @@
-# NetCDF Analysis Tools
+# NetCDF Analysis and Bitrounding Tools
 
-A collection of Python scripts for analyzing NetCDF files, compression characteristics, and bit usage patterns. Designed for HPC environments with SLURM and Spack.
+A collection of tools for analyzing NetCDF files, compression characteristics, bit usage patterns, and applying bitrounding compression. Designed for HPC environments with SLURM and Spack.
 
 ## Tools Overview
 
-### 1. `analyze_netcdf_compression.py`
+### 1. `bitrounding` (C Implementation)
+High-performance C implementation of bitrounding algorithm for NetCDF files with compression support.
+
+**Features:**
+- Bitrounding algorithm ported from CDO with exact statistical functions
+- Chunked processing for 3D+ variables using last two dimensions
+- Missing value and NaN handling
+- Optional compression with shuffle filter (`--complevel=1-9`)
+- File size and compression ratio reporting
+
+### 2. `netcdf_bit_analysis` (C Implementation)
+Fast C implementation for analyzing bit usage patterns in NetCDF variables.
+
+**Features:**
+- Shows bit patterns for each variable (MSB to LSB)
+- Analyzes 3D+ variables slice-by-slice (each 2D slice)
+
+### 3. `analyze_netcdf_compression.py`
 Analyzes HDF5 compression statistics in compressed NetCDF files using `h5ls`.
 
 **Features:**
@@ -13,23 +30,37 @@ Analyzes HDF5 compression statistics in compressed NetCDF files using `h5ls`.
 - Shows disk space usage and compression ratios
 - Formats output in a clean table
 
-### 2. `analyze_bit_precision.py`
-Analyzes bit usage patterns in NetCDF variables to understand precision requirements.
+### 4. `analyze_bit_precision.py`
+Python implementation for analyzing bit usage patterns in NetCDF variables.
 
 **Features:**
 - Shows bit patterns for each variable (MSB to LSB)
 - Analyzes 3D+ variables slice-by-slice (each 2D slice)
 - Uses vectorized operations for efficiency
-- Formats bit patterns with spaces every 8 bits
 
 ## Prerequisites
 
 - Python 3.6+
 - xarray, numpy (available in `/code/venv/bin/activate`)
+- NetCDF-C library (available via Spack)
 - HDF5 tools (available via Spack)
 - SLURM environment for compute jobs
+- GCC compiler for building C tools
 
 ## Setup
+
+### Building C Tools
+```bash
+# Source Spack and set config path
+source /capstor/scratch/cscs/lhuang/cdo/spack/share/spack/setup-env.sh
+export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/cdo/.spack
+
+# Load required tools
+spack load netcdf-c
+
+# Build all tools
+make all
+```
 
 ### Spack Environment
 ```bash
@@ -49,6 +80,34 @@ source /code/venv/bin/activate
 ```
 
 ## Usage
+
+### Bitrounding (C Implementation)
+
+```bash
+# Basic usage
+./bitrounding <inflevel> <input.nc> <output.nc>
+
+# With compression
+./bitrounding <inflevel> <input.nc> <output.nc> --complevel=9
+
+# Examples
+./bitrounding 0.99 input.nc output.nc
+./bitrounding 0.9999 input.nc compressed_output.nc --complevel=6
+```
+
+**Parameters:**
+- `inflevel`: Information level threshold (0.0-1.0, typically 0.99-0.9999)
+- `--complevel`: Optional compression level (1-9), automatically enables shuffle filter
+
+### NetCDF Bit Analysis (C Implementation)
+
+```bash
+# Analyze bit patterns
+./netcdf_bit_analysis <netcdf_file>
+
+# Example
+./netcdf_bit_analysis data.nc
+```
 
 ### Compression Analysis
 

@@ -36,18 +36,29 @@ SOURCES = $(SRCDIR)/netcdf_bit_analysis.c $(SRCDIR)/bit_pattern.c
 OBJECTS = $(SOURCES:.c=.o)
 HEADERS = $(SRCDIR)/bit_pattern.h
 
-# Target executable
+# Bitrounding source files
+BITROUNDING_SOURCES = $(SRCDIR)/bitrounding.c $(SRCDIR)/bitrounding_stats.c $(SRCDIR)/bitrounding_bitinfo.c
+BITROUNDING_OBJECTS = $(BITROUNDING_SOURCES:.c=.o)
+BITROUNDING_HEADERS = $(SRCDIR)/bitrounding_stats.h $(SRCDIR)/bitrounding_bitinfo.h
+
+# Target executables
 TARGET = netcdf_bit_analysis
+BITROUNDING_TARGET = bitrounding
 
 # Build rules
-all: $(TARGET)
+all: $(TARGET) $(BITROUNDING_TARGET)
 
 $(TARGET): $(OBJECTS)
 	@echo "Linking $(TARGET)..."
 	$(CC) $(OBJECTS) -o $@ $(LDFLAGS) $(NETCDF_LIBS)
 	@echo "Build complete: $(TARGET)"
 
-%.o: %.c $(HEADERS)
+$(BITROUNDING_TARGET): $(BITROUNDING_OBJECTS)
+	@echo "Linking $(BITROUNDING_TARGET)..."
+	$(CC) $(BITROUNDING_OBJECTS) -o $@ $(LDFLAGS) $(NETCDF_LIBS)
+	@echo "Build complete: $(BITROUNDING_TARGET)"
+
+%.o: %.c $(HEADERS) $(BITROUNDING_HEADERS)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(NETCDF_CFLAGS) -c $< -o $@
 
@@ -73,7 +84,7 @@ release: clean all
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJECTS) $(BITROUNDING_OBJECTS) $(TARGET) $(BITROUNDING_TARGET)
 	@echo "Clean complete"
 
 # Install to local bin (optional)
