@@ -22,3 +22,6 @@ spack/
 
 # Build artifacts
 cdo-*/
+
+# UV environment
+.venv/

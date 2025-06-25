@@ -48,3 +48,6 @@
 
 ## Testing Scripts
 - Record the testing script
+
+## Python Environments
+- You can run python under uv environment with `uv run ...`

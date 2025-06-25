@@ -1,0 +1,15 @@
+[project]
+name = "bitrounding-tools"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dask>=2025.5.1",
+    "h5netcdf>=1.6.1",
+    "h5py>=3.14.0",
+    "netcdf4>=1.7.2",
+    "numba>=0.61.2",
+    "numpy>=2.2.6",
+    "xarray>=2025.6.1",
+]
