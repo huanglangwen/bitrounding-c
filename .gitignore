@@ -1,0 +1,24 @@
+# Tar files
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tgz
+cdo-2.5.2.tar.gz
+
+# Binary executables
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+netcdf_bit_analysis
+netcdf_bit_rounding
+hdf_size_stat
+hdf_bit_analysis
+
+# Spack directories
+spack/
+
+# Build artifacts
+cdo-*/
