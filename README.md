@@ -1,6 +1,6 @@
-# NetCDF Analysis and Bitrounding Tools
+# NetCDF and HDF5 Analysis Tools
 
-A collection of tools for analyzing NetCDF files, compression characteristics, bit usage patterns, and applying bitrounding compression. Designed for HPC environments with SLURM and Spack.
+A collection of tools for analyzing NetCDF/HDF5 files, compression characteristics, bit usage patterns, and applying bitrounding compression. Designed for HPC environments with SLURM and Spack.
 
 ## Tools Overview
 
@@ -21,8 +21,26 @@ Fast C implementation for analyzing bit usage patterns in NetCDF variables.
 - Shows bit patterns for each variable (MSB to LSB)
 - Analyzes 3D+ variables slice-by-slice (each 2D slice)
 
-### 3. `analyze_netcdf_compression.py`
-Analyzes HDF5 compression statistics in compressed NetCDF files using `h5ls`.
+### 3. `hdf_bit_analysis` (C Implementation)
+Fast C implementation for analyzing bit usage patterns in HDF5 datasets.
+
+**Features:**
+- Shows bit patterns for each dataset (MSB to LSB)
+- Analyzes 3D+ datasets slice-by-slice (each 2D slice)
+- Direct HDF5 library interface for maximum performance
+
+### 4. `hdf_size_stat` (C Implementation)
+Comprehensive HDF5 compression analysis tool for detailed size statistics.
+
+**Features:**
+- Shows compressed vs uncompressed sizes for each dataset
+- Chunk-level compression analysis with min/max/mean statistics
+- Categorizes variables by dimensionality (3D+, 2D, coordinates)
+- Calculates compression ratios and file proportions
+- Handles both chunked and non-chunked datasets
+
+### 5. `analyze_hdf_compression.py`
+Python-based HDF5 compression statistics analyzer using `h5ls`.
 
 **Features:**
 - Extracts storage information for each variable
@@ -30,7 +48,7 @@ Analyzes HDF5 compression statistics in compressed NetCDF files using `h5ls`.
 - Shows disk space usage and compression ratios
 - Formats output in a clean table
 
-### 4. `analyze_bit_precision.py`
+### 6. `analyze_bit_precision.py`
 Python implementation for analyzing bit usage patterns in NetCDF variables.
 
 **Features:**
@@ -109,14 +127,35 @@ source /code/venv/bin/activate
 ./netcdf_bit_analysis data.nc
 ```
 
-### Compression Analysis
+### HDF5 Size Analysis (C Implementation)
+
+```bash
+# Fast C implementation for detailed compression analysis
+./hdf_size_stat <hdf5_or_netcdf_file>
+
+# Examples
+./hdf_size_stat data.nc
+./hdf_size_stat data.h5
+```
+
+### HDF5 Bit Analysis (C Implementation)
+
+```bash
+# Analyze bit patterns in HDF5 datasets
+./hdf_bit_analysis <hdf5_or_netcdf_file>
+
+# Example
+./hdf_bit_analysis data.nc
+```
+
+### Compression Analysis (Python)
 
 ```bash
 # On login node (lightweight operation)
-python3 analyze_netcdf_compression.py <netcdf_file>
+python3 analyze_hdf_compression.py <netcdf_file>
 
 # Example
-python3 analyze_netcdf_compression.py /path/to/compressed_file.nc
+python3 analyze_hdf_compression.py /path/to/compressed_file.nc
 ```
 
 ### Bit Precision Analysis
@@ -133,42 +172,43 @@ srun --environment=compbench -A a122 -t 4:00:00 --mem=460000 bash -c \
 
 ## Examples and Expected Results
 
-### Compression Analysis Example
+### HDF5 Size Analysis Example
 
 **Command:**
 ```bash
-python3 analyze_netcdf_compression.py P2016-1020_09_chunked_cdotest_nccopy_compress.nc
+./hdf_size_stat P2016-1015_19_br.nc
 ```
 
 **Expected Output:**
 ```
-NetCDF Compression Analysis: P2016-1020_09_chunked_cdotest_nccopy_compress.nc
-================================================================================
-Variable                                 Allocated (MB)  Logical (MB)    Compression %  
---------------------------------------------------------------------------------
-3D Variables:
-  v_component_of_wind                    104.49          146.54          140.2          
-  specific_humidity                      82.35           146.54          177.9          
-  temperature                            69.53           146.54          210.8          
-  geopotential                           60.69           146.54          241.4          
+HDF5 Size Analysis: P2016-1015_19_br.nc
+================================================================================================================================================================
+Variable                                        Compressed (MB) Original (MB)   Compression %   File %    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+3D+ Variables:
+  v_component_of_wind                           11.81           146.54            12.4x           26.9% (37 chunks: min=156.43 KB, max=2.03 MB, mean=326.96 KB)
+  temperature                                   11.03           146.54            13.3x           25.2% (37 chunks: min=204.16 KB, max=1.22 MB, mean=305.24 KB)
+  specific_humidity                             10.80           146.54            13.6x           24.6% (37 chunks: min=85.60 KB, max=1.94 MB, mean=298.94 KB)
+  geopotential                                  8.60            146.54            17.0x           19.6% (37 chunks: min=114.55 KB, max=1.25 MB, mean=237.93 KB)
 
 2D Variables:
-  mean_surface_net_long_wave_radiation_flux 2.78            3.96            142.6          
-  mean_surface_sensible_heat_flux        2.66            3.96            148.7          
-  mean_surface_latent_heat_flux          2.54            3.96            156.0          
-  top_net_thermal_radiation              2.40            3.96            164.8          
-  mean_surface_net_short_wave_radiation_flux 1.37            3.96            288.7          
-  top_net_solar_radiation                1.36            3.96            290.2          
-  toa_incident_solar_radiation           1.06            3.96            372.1          
+  top_net_thermal_radiation                     0.32            3.96              12.3x            0.7%
+  mean_surface_sensible_heat_flux               0.32            3.96              12.5x            0.7%
+  mean_surface_latent_heat_flux                 0.26            3.96              15.0x            0.6%
+  mean_surface_net_long_wave_radiation_flux     0.23            3.96              17.3x            0.5%
+  top_net_solar_radiation                       0.18            3.96              22.0x            0.4%
+  mean_surface_net_short_wave_radiation_flux    0.17            3.96              24.0x            0.4%
+  toa_incident_solar_radiation                  0.12            3.96              33.3x            0.3%
 
 Coordinate Variables:
-  latitude                               <0.01           <0.01           357.8          
-  level                                  <0.01           <0.01           379.5          
-  longitude                              <0.01           <0.01           612.8          
+  longitude                                     <0.01           <0.01              6.1x            0.0%
+  latitude                                      <0.01           <0.01              3.6x            0.0%
+  level                                         <0.01           <0.01              4.9x            0.0%
+  time                                          <0.01           <0.01              0.0x            0.0%
 
---------------------------------------------------------------------------------
-TOTAL COMPRESSED SIZE:                   331.26          MB
-================================================================================
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL COMPRESSED SIZE:                   43.84           MB
+================================================================================================================================================================
 ```
 
 ### Bit Precision Analysis Example
@@ -216,10 +256,12 @@ Summary:
 
 ## Understanding the Output
 
-### Compression Analysis
-- **Allocated (MB)**: Actual disk space used after compression
-- **Logical (MB)**: Uncompressed size
-- **Compression %**: `(logical/allocated) × 100` - higher is better compression
+### HDF5 Size Analysis
+- **Compressed (MB)**: Actual disk space used after compression
+- **Original (MB)**: Uncompressed size calculated from dimensions
+- **Compression %**: `uncompressed/compressed` ratio - higher is better compression
+- **File %**: Percentage of total compressed file size
+- **Chunk Statistics**: For chunked variables, shows min/max/mean compressed chunk sizes in KB/MB
 
 ### Bit Precision Analysis
 - **Bit Pattern**: Shows which bit positions are used in the data

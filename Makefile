@@ -47,6 +47,8 @@ NETCDF_SOURCES = $(SRCDIR)/netcdf_bit_analysis.c $(SRCDIR)/bit_pattern.c
 NETCDF_OBJECTS = $(NETCDF_SOURCES:.c=.o)
 HDF5_SOURCES = $(SRCDIR)/hdf_bit_analysis.c $(SRCDIR)/bit_pattern.c
 HDF5_OBJECTS = $(HDF5_SOURCES:.c=.o)
+HDF5_SIZE_SOURCES = $(SRCDIR)/hdf_size_stat.c
+HDF5_SIZE_OBJECTS = $(HDF5_SIZE_SOURCES:.c=.o)
 HEADERS = $(SRCDIR)/bit_pattern.h
 
 # Bitrounding source files
@@ -57,10 +59,11 @@ BITROUNDING_HEADERS = $(SRCDIR)/bitrounding_stats.h $(SRCDIR)/bitrounding_bitinf
 # Target executables
 NETCDF_TARGET = netcdf_bit_analysis
 HDF5_TARGET = hdf_bit_analysis
+HDF5_SIZE_TARGET = hdf_size_stat
 BITROUNDING_TARGET = netcdf_bit_rounding
 
 # Build rules
-all: $(NETCDF_TARGET) $(HDF5_TARGET) $(BITROUNDING_TARGET)
+all: $(NETCDF_TARGET) $(HDF5_TARGET) $(HDF5_SIZE_TARGET) $(BITROUNDING_TARGET)
 
 $(NETCDF_TARGET): $(NETCDF_OBJECTS)
 	@echo "Linking $(NETCDF_TARGET)..."
@@ -71,6 +74,11 @@ $(HDF5_TARGET): $(HDF5_OBJECTS)
 	@echo "Linking $(HDF5_TARGET)..."
 	$(CC) $(HDF5_OBJECTS) -o $@ $(LDFLAGS) $(HDF5_LIBS)
 	@echo "Build complete: $(HDF5_TARGET)"
+
+$(HDF5_SIZE_TARGET): $(HDF5_SIZE_OBJECTS)
+	@echo "Linking $(HDF5_SIZE_TARGET)..."
+	$(CC) $(HDF5_SIZE_OBJECTS) -o $@ $(LDFLAGS) $(HDF5_LIBS)
+	@echo "Build complete: $(HDF5_SIZE_TARGET)"
 
 $(BITROUNDING_TARGET): $(BITROUNDING_OBJECTS)
 	@echo "Linking $(BITROUNDING_TARGET)..."
@@ -85,6 +93,10 @@ $(SRCDIR)/netcdf_bit_analysis.o: $(SRCDIR)/netcdf_bit_analysis.c $(HEADERS)
 # HDF5 objects  
 $(SRCDIR)/hdf_bit_analysis.o: $(SRCDIR)/hdf_bit_analysis.c $(HEADERS)
 	@echo "Compiling $< (HDF5)..."
+	$(CC) $(CFLAGS) $(HDF5_CFLAGS) -c $< -o $@
+
+$(SRCDIR)/hdf_size_stat.o: $(SRCDIR)/hdf_size_stat.c
+	@echo "Compiling $< (HDF5 Size Stats)..."
 	$(CC) $(CFLAGS) $(HDF5_CFLAGS) -c $< -o $@
 
 # Generic bit_pattern object (used by both)
@@ -119,13 +131,13 @@ release: clean all
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f $(NETCDF_OBJECTS) $(HDF5_OBJECTS) $(BITROUNDING_OBJECTS) $(NETCDF_TARGET) $(HDF5_TARGET) $(BITROUNDING_TARGET)
+	rm -f $(NETCDF_OBJECTS) $(HDF5_OBJECTS) $(HDF5_SIZE_OBJECTS) $(BITROUNDING_OBJECTS) $(NETCDF_TARGET) $(HDF5_TARGET) $(HDF5_SIZE_TARGET) $(BITROUNDING_TARGET)
 	@echo "Clean complete"
 
 # Install to local bin (optional)
-install: $(NETCDF_TARGET) $(HDF5_TARGET)
+install: $(NETCDF_TARGET) $(HDF5_TARGET) $(HDF5_SIZE_TARGET)
 	@echo "Installing tools to /usr/local/bin..."
-	sudo cp $(NETCDF_TARGET) $(HDF5_TARGET) /usr/local/bin/
+	sudo cp $(NETCDF_TARGET) $(HDF5_TARGET) $(HDF5_SIZE_TARGET) /usr/local/bin/
 	@echo "Installation complete"
 
 # Create example output
@@ -180,6 +192,7 @@ help:
 	@echo "Individual targets:"
 	@echo "  $(NETCDF_TARGET) - Build NetCDF bit analysis tool only"
 	@echo "  $(HDF5_TARGET)   - Build HDF5 bit analysis tool only"
+	@echo "  $(HDF5_SIZE_TARGET) - Build HDF5 size statistics tool only"
 
 # SLURM integration targets
 srun-build:
