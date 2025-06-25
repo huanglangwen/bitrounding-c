@@ -15,12 +15,8 @@
   - Validate chunk sizes against variable dimensions
 
 ### 3. NetCDF Bit Analysis Improvements
-- [ ] Collect variable-wise storage statistics in netcdf_bit_analysis.c
-  - Occupied size (actual storage)
-  - Original size (uncompressed)
-  - Compression ratio per variable
-  - Proportion of total file size
-  - Output in tabular format for easy analysis
+- [ ] Improve `netcdf_bit_analysis.c`
+  - support other dtypes than float32 
 
 ### 4. Code Organization
 - [x] Rename bitrounding.c to netcdf_bit_rounding.c
@@ -35,6 +31,19 @@
   - Support 2D slice analysis for multidimensional variables
   - Optional CLI curve/graph output for bit patterns
   - Complement existing bit analysis tools with detailed bit-level statistics
+
+### 6. Add HDF5 Bit Analysis Tool
+- [x] Add `hdf_bit_analysis.c`
+  - Occupied size (actual storage)
+  - Original size (uncompressed)
+  - Compression ratio per variable
+  - Proportion of total file size
+
+### 7. Improve Spack build
+- [ ] create packages.yaml to specify version and depencies
+  - hdf5~mpi
+  - netcdf-c
+  - cdo 
 
 ## Implementation Notes
 

@@ -3,15 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <netcdf.h>
-
-/* Error handling macro */
-#define NC_CHECK(status) do { \
-    if (status != NC_NOERR) { \
-        fprintf(stderr, "NetCDF error: %s\n", nc_strerror(status)); \
-        return status; \
-    } \
-} while(0)
 
 /* Memory management functions */
 void* safe_malloc(size_t size) {
@@ -32,112 +23,10 @@ void* safe_calloc(size_t nmemb, size_t size) {
     return ptr;
 }
 
-void free_variable_info(variable_info_t *var) {
-    if (var && var->dims) {
-        free(var->dims);
-        var->dims = NULL;
-    }
-}
 
-/* NetCDF utility functions */
-int open_netcdf_file(const char *filename, int *ncid) {
-    int status = nc_open(filename, NC_NOERR, ncid);
-    NC_CHECK(status);
-    return NC_NOERR;
-}
-
-int get_variable_count(int ncid, int *nvars) {
-    int status = nc_inq_nvars(ncid, nvars);
-    NC_CHECK(status);
-    return NC_NOERR;
-}
-
-int get_variable_info(int ncid, int varid, variable_info_t *var) {
-    int status;
-    
-    /* Get variable name */
-    status = nc_inq_varname(ncid, varid, var->name);
-    NC_CHECK(status);
-    
-    /* Get variable type and dimensions */
-    status = nc_inq_var(ncid, varid, NULL, &var->dtype, &var->ndims, NULL, NULL);
-    NC_CHECK(status);
-    
-    /* Allocate and get dimension IDs */
-    int *dimids = safe_malloc(var->ndims * sizeof(int));
-    status = nc_inq_var(ncid, varid, NULL, NULL, NULL, dimids, NULL);
-    NC_CHECK(status);
-    
-    /* Allocate and get dimension sizes */
-    var->dims = safe_malloc(var->ndims * sizeof(size_t));
-    var->total_elements = 1;
-    
-    for (int i = 0; i < var->ndims; i++) {
-        status = nc_inq_dimlen(ncid, dimids[i], &var->dims[i]);
-        NC_CHECK(status);
-        var->total_elements *= var->dims[i];
-    }
-    
-    var->varid = varid;
-    free(dimids);
-    
-    return NC_NOERR;
-}
-
-int read_variable_data(int ncid, variable_info_t *var, void **data) {
-    if (var->dtype != NC_FLOAT) {
-        fprintf(stderr, "Error: Only float variables are supported\n");
-        return NC_EBADTYPE;
-    }
-    
-    *data = safe_malloc(var->total_elements * sizeof(float));
-    
-    int status = nc_get_var_float(ncid, var->varid, (float*)*data);
-    NC_CHECK(status);
-    
-    return NC_NOERR;
-}
-
-int read_2d_slice(int ncid, variable_info_t *var, size_t slice_index, float **data) {
-    if (var->dtype != NC_FLOAT) {
-        fprintf(stderr, "Error: Only float variables are supported\n");
-        return NC_EBADTYPE;
-    }
-    
-    if (var->ndims < 3) {
-        fprintf(stderr, "Error: Variable must have at least 3 dimensions for slicing\n");
-        return NC_EINVAL;
-    }
-    
-    /* Calculate 2D slice size (last two dimensions) */
-    size_t slice_size = var->dims[var->ndims-2] * var->dims[var->ndims-1];
-    *data = safe_malloc(slice_size * sizeof(float));
-    
-    /* Set up start and count arrays for hyperslab reading */
-    size_t *start = safe_calloc(var->ndims, sizeof(size_t));
-    size_t *count = safe_calloc(var->ndims, sizeof(size_t));
-    
-    /* Set slice index for first dimension, read full last two dimensions */
-    start[0] = slice_index;
-    count[0] = 1;
-    for (int i = 1; i < var->ndims - 2; i++) {
-        start[i] = 0;
-        count[i] = 1;  /* For now, assume 3D only */
-    }
-    count[var->ndims-2] = var->dims[var->ndims-2];
-    count[var->ndims-1] = var->dims[var->ndims-1];
-    
-    int status = nc_get_vara_float(ncid, var->varid, start, count, *data);
-    
-    free(start);
-    free(count);
-    NC_CHECK(status);
-    
-    return NC_NOERR;
-}
 
 /* Core bit analysis functions */
-int analyze_float_bits(float *data, size_t len, uint8_t *bit_pattern, int bit_width) {
+int analyze_bits_generic(void *data, size_t len, size_t element_size, uint8_t *bit_pattern, int bit_width, int check_finite) {
     /* Initialize pattern array: 0=all zeros, 1=all ones, 2=mixed */
     for (int i = 0; i < bit_width; i++) {
         bit_pattern[i] = 0;  /* Start assuming all zeros */
@@ -145,19 +34,31 @@ int analyze_float_bits(float *data, size_t len, uint8_t *bit_pattern, int bit_wi
     
     if (len == 0) return 0;
     
-    /* Convert floats to integer representation for bit analysis */
-    uint32_t *int_data = (uint32_t*)data;
-    
     /* Check each bit position */
     for (int bit_pos = 0; bit_pos < bit_width; bit_pos++) {
-        uint32_t mask = 1U << bit_pos;
         int all_zero = 1, all_one = 1;
         
         for (size_t i = 0; i < len; i++) {
-            /* Skip NaN and infinite values */
-            if (!isfinite(data[i])) continue;
+            uint8_t *element = (uint8_t*)data + i * element_size;
+            int bit_set = 0;
             
-            int bit_set = (int_data[i] & mask) != 0;
+            /* Skip NaN and infinite values for float types */
+            if (check_finite) {
+                if (element_size == sizeof(float)) {
+                    float val = *(float*)element;
+                    if (!isfinite(val)) continue;
+                } else if (element_size == sizeof(double)) {
+                    double val = *(double*)element;
+                    if (!isfinite(val)) continue;
+                }
+            }
+            
+            /* Check bit at position bit_pos */
+            int byte_index = bit_pos / 8;
+            int bit_in_byte = bit_pos % 8;
+            if ((size_t)byte_index < element_size) {
+                bit_set = (element[byte_index] & (1 << bit_in_byte)) != 0;
+            }
             
             if (bit_set) all_zero = 0;
             if (!bit_set) all_one = 0;
@@ -178,7 +79,68 @@ int analyze_float_bits(float *data, size_t len, uint8_t *bit_pattern, int bit_wi
     return 0;
 }
 
-char* format_bit_pattern(uint8_t *pattern, int bit_width, char *output) {
+int analyze_data_bits(void *data, size_t len, dtype_t dtype, bit_pattern_result_t *result) {
+    uint8_t bit_pattern[64];  /* Support up to 64-bit types */
+    size_t element_size = 0;
+    int bit_width = 0;
+    int check_finite = 0;
+    
+    switch (dtype) {
+        case DTYPE_FLOAT32:
+            element_size = sizeof(float);
+            bit_width = 32;
+            check_finite = 1;
+            break;
+        case DTYPE_FLOAT64:
+            element_size = sizeof(double);
+            bit_width = 64;
+            check_finite = 1;
+            break;
+        case DTYPE_INT16:
+        case DTYPE_UINT16:
+            element_size = sizeof(int16_t);
+            bit_width = 16;
+            break;
+        case DTYPE_INT32:
+        case DTYPE_UINT32:
+            element_size = sizeof(int32_t);
+            bit_width = 32;
+            break;
+        case DTYPE_INT64:
+        case DTYPE_UINT64:
+            element_size = sizeof(int64_t);
+            bit_width = 64;
+            break;
+        default:
+            fprintf(stderr, "Error: Unsupported data type %d\n", dtype);
+            return -1;
+    }
+    
+    int status = analyze_bits_generic(data, len, element_size, bit_pattern, bit_width, check_finite);
+    if (status != 0) return status;
+    
+    result->bit_width = bit_width;
+    
+    /* Count pattern types */
+    result->all_zeros_count = 0;
+    result->all_ones_count = 0;
+    result->mixed_count = 0;
+    
+    for (int i = 0; i < bit_width; i++) {
+        switch (bit_pattern[i]) {
+            case 0: result->all_zeros_count++; break;
+            case 1: result->all_ones_count++; break;
+            case 2: result->mixed_count++; break;
+        }
+    }
+    
+    /* Format the pattern string */
+    format_bit_pattern(bit_pattern, bit_width, dtype, result->pattern);
+    
+    return 0;
+}
+
+char* format_bit_pattern(uint8_t *pattern, int bit_width, dtype_t dtype, char *output) {
     int pos = 0;
     
     /* Add MSB marker */
@@ -195,8 +157,27 @@ char* format_bit_pattern(uint8_t *pattern, int bit_width, char *output) {
         
         output[pos++] = bit_char;
         
-        /* Add space every 8 bits (but not at the end) */
-        if (i > 0 && (bit_width - i) % 8 == 0) {
+        /* Add IEEE 754 field separators for float types */
+        if (dtype == DTYPE_FLOAT32 && bit_width == 32) {
+            /* Float32: S|EEEEEEEE|MMMMMMMMMMMMMMMMMMMMMMM */
+            /* Sign bit at position 31, exponent at 30-23, mantissa at 22-0 */
+            if (i == 31) {  /* After sign bit (position 31) */
+                output[pos++] = '|';
+            } else if (i == 23) {  /* After exponent (positions 30-23) */
+                output[pos++] = '|';
+            }
+        } else if (dtype == DTYPE_FLOAT64 && bit_width == 64) {
+            /* Float64: S|EEEEEEEEEEE|MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM */
+            /* Sign bit at position 63, exponent at 62-52, mantissa at 51-0 */
+            if (i == 63) {  /* After sign bit (position 63) */
+                output[pos++] = '|';
+            } else if (i == 52) {  /* After exponent (positions 62-52) */
+                output[pos++] = '|';
+            }
+        }
+        
+        /* Add space every 8 bits (but not at the end, and not if we just added |) */
+        if (i > 0 && (bit_width - i) % 8 == 0 && (pos > 0 && output[pos-1] != '|')) {
             output[pos++] = ' ';
         }
     }
@@ -208,47 +189,7 @@ char* format_bit_pattern(uint8_t *pattern, int bit_width, char *output) {
     return output;
 }
 
-int analyze_2d_slice(float *data, size_t len, bit_pattern_result_t *result) {
-    result->bit_width = 32;  /* IEEE 754 float32 */
-    uint8_t bit_pattern[32];
-    
-    int status = analyze_float_bits(data, len, bit_pattern, 32);
-    if (status != 0) return status;
-    
-    /* Count pattern types */
-    result->all_zeros_count = 0;
-    result->all_ones_count = 0;
-    result->mixed_count = 0;
-    
-    for (int i = 0; i < 32; i++) {
-        switch (bit_pattern[i]) {
-            case 0: result->all_zeros_count++; break;
-            case 1: result->all_ones_count++; break;
-            case 2: result->mixed_count++; break;
-        }
-    }
-    
-    /* Format the pattern string */
-    format_bit_pattern(bit_pattern, 32, result->pattern);
-    
-    return 0;
-}
 
-int analyze_variable_bits(int ncid, variable_info_t *var, bit_pattern_result_t *result) {
-    if (var->dtype != NC_FLOAT) {
-        fprintf(stderr, "Warning: Skipping non-float variable '%s'\n", var->name);
-        return NC_EBADTYPE;
-    }
-    
-    float *data;
-    int status = read_variable_data(ncid, var, (void**)&data);
-    if (status != NC_NOERR) return status;
-    
-    status = analyze_2d_slice(data, var->total_elements, result);
-    
-    free(data);
-    return status;
-}
 
 /* Output formatting functions */
 void print_table_header(void) {
@@ -288,12 +229,4 @@ void format_shape_string(size_t *dims, int ndims, char *output) {
     }
 }
 
-int is_multidimensional(variable_info_t *var) {
-    return var->ndims > 2;
-}
 
-void cleanup_on_error(int ncid, variable_info_t *var, void *data) {
-    if (data) free(data);
-    if (var) free_variable_info(var);
-    if (ncid >= 0) nc_close(ncid);
-}

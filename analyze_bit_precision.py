@@ -60,27 +60,53 @@ def find_bit_pattern(data_array):
     else:
         bit_width = 64  # Default for integer types
     
-    # Create bit pattern array - 1 means bit is used, 0 means not used
-    bit_pattern = np.zeros(bit_width, dtype=bool)
+    # Create bit pattern arrays
+    # 0: all zeros, 1: all ones, 2: mixed (some zeros, some ones)
+    bit_pattern = np.zeros(bit_width, dtype=int)
     
     # Check each bit position using vectorized operations
     for bit_pos in range(bit_width):
         # Create mask for this bit position
         bit_mask = 1 << bit_pos
-        # Check if any value has this bit set
-        if np.any((int_data & bit_mask) != 0):
-            bit_pattern[bit_pos] = True
+        # Get bit values for this position across all data
+        bit_values = (int_data & bit_mask) != 0
+        
+        # Check if all zeros, all ones, or mixed
+        if np.all(bit_values == False):
+            bit_pattern[bit_pos] = 0  # All zeros
+        elif np.all(bit_values == True):
+            bit_pattern[bit_pos] = 1  # All ones
+        else:
+            bit_pattern[bit_pos] = 2  # Mixed
     
     # Convert to string representation (MSB first)
     pattern_chars = []
     for i in range(bit_width-1, -1, -1):  # Start from MSB
-        if bit_pattern[i]:
-            pattern_chars.append('1')
+        if bit_pattern[i] == 0:
+            pattern_chars.append('0')  # All zeros
+        elif bit_pattern[i] == 1:
+            pattern_chars.append('1')  # All ones
         else:
-            pattern_chars.append('-')
+            pattern_chars.append('-')  # Mixed
         
-        # Add space every 8 bits (but not at the end)
-        if i > 0 and (bit_width - i) % 8 == 0:
+        # Add IEEE 754 field separators for float types
+        if data.dtype == np.float32:
+            # Float32: S|EEEEEEEE|MMMMMMMMMMMMMMMMMMMMMMM
+            # Sign bit at position 31, exponent at 30-23, mantissa at 22-0
+            if i == 31:  # After sign bit (position 31)
+                pattern_chars.append('|')
+            elif i == 23:  # After exponent (positions 30-23)
+                pattern_chars.append('|')
+        elif data.dtype == np.float64:
+            # Float64: S|EEEEEEEEEEE|MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+            # Sign bit at position 63, exponent at 62-52, mantissa at 51-0
+            if i == 63:  # After sign bit (position 63)
+                pattern_chars.append('|')
+            elif i == 52:  # After exponent (positions 62-52)
+                pattern_chars.append('|')
+        
+        # Add space every 8 bits (but not at the end, and not if we just added |)
+        if i > 0 and (bit_width - i) % 8 == 0 and (pattern_chars[-1] != '|' if pattern_chars else True):
             pattern_chars.append(' ')
     
     pattern_str = ''.join(pattern_chars)
@@ -173,9 +199,10 @@ def analyze_netcdf_precision(filepath):
         
         # Summary statistics
         print(f"\nSummary:")
-        print(f"  Bit patterns show which bit positions are used across all values")
-        print(f"  '1' = at least one value uses this bit position")
-        print(f"  '-' = no values use this bit position")
+        print(f"  Bit patterns show the state of each bit position across all values")
+        print(f"  '0' = all values have 0 at this bit position")
+        print(f"  '1' = all values have 1 at this bit position")
+        print(f"  '-' = mixed (some values have 0, some have 1)")
         print(f"  Pattern format: (MSB) xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx (LSB)")
         
         # Close the dataset
