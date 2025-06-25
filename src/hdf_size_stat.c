@@ -356,8 +356,10 @@ void print_summary_table(dataset_info_t *datasets, int ndatasets, const char *fi
                        &data_2d, &n_2d, &data_nd, &n_nd, &other, &n_other);
     
     size_t total_compressed = 0;
+    size_t total_original = 0;
     for (int i = 0; i < ndatasets; i++) {
         total_compressed += datasets[i].compressed_size;
+        total_original += datasets[i].uncompressed_size;
     }
     
     printf("\nHDF5 Size Analysis: %s\n", filename);
@@ -371,10 +373,15 @@ void print_summary_table(dataset_info_t *datasets, int ndatasets, const char *fi
     print_category("Coordinate Variables", coord_vars, n_coord, total_compressed);
     print_category("Other Variables", other, n_other, total_compressed);
     
-    char total_mb[16];
-    format_size_mb(total_compressed, total_mb);
+    char total_compressed_mb[16], total_original_mb[16];
+    format_size_mb(total_compressed, total_compressed_mb);
+    format_size_mb(total_original, total_original_mb);
+    double overall_compression_ratio = (total_original > 0) ? (double)total_original / total_compressed : 0.0;
+    
     printf("----------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
-    printf("%-40s %-15s MB\n", "TOTAL COMPRESSED SIZE:", total_mb);
+    printf("%-40s %-15s MB\n", "TOTAL COMPRESSED SIZE:", total_compressed_mb);
+    printf("%-40s %-15s MB\n", "TOTAL ORIGINAL SIZE:", total_original_mb);
+    printf("%-40s %.1fx\n", "COMPRESSION RATIO:", overall_compression_ratio);
     printf("================================================================================================================================================================\n");
     
     free(coord_vars);
