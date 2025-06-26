@@ -4,11 +4,11 @@
 # Compiler and flags
 CC = gcc
 CFLAGS = -Wall -Wextra -O3 -std=c99 -g
-LDFLAGS = -lm
+LDFLAGS = -static
 
 # Spack integration
-SPACK_ROOT = /capstor/scratch/cscs/lhuang/bitrounding/spack
-SPACK_CONFIG = /capstor/scratch/cscs/lhuang/bitrounding/.spack
+SPACK_ROOT = /capstor/scratch/cscs/lhuang/spack
+SPACK_CONFIG = /capstor/scratch/cscs/lhuang/.spack
 SPACK_ENV = source $(SPACK_ROOT)/share/spack/setup-env.sh && export SPACK_USER_CONFIG_PATH=$(SPACK_CONFIG)
 
 # Try to get library flags from pkg-config if available
@@ -16,30 +16,56 @@ NETCDF_CFLAGS := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --e
 NETCDF_LIBS := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --exists netcdf 2>/dev/null && pkg-config --libs netcdf)
 HDF5_CFLAGS := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --exists hdf5 2>/dev/null && pkg-config --cflags hdf5)
 HDF5_LIBS := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --exists hdf5 2>/dev/null && pkg-config --libs hdf5)
+ZLIB_CFLAGS := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --exists zlib 2>/dev/null && pkg-config --cflags zlib)
+ZLIB_LIBS := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --exists zlib 2>/dev/null && pkg-config --libs zlib)
 
 # If pkg-config fails, use Spack
 ifeq ($(NETCDF_CFLAGS),)
-    NETCDF_CFLAGS := $(shell $(SPACK_ENV) && spack load netcdf-c && pkg-config --cflags netcdf 2>/dev/null || echo "-I$(SPACK_ROOT)/opt/spack/linux-neoverse_v2/netcdf-c/include")
+    NETCDF_CFLAGS := $(shell $(SPACK_ENV) && spack load netcdf-c && pkg-config --cflags netcdf 2>/dev/null || echo "-I$(shell $(SPACK_ENV) && spack location -i netcdf-c)/include")
 endif
 
 ifeq ($(NETCDF_LIBS),)
-    NETCDF_LIBS := $(shell $(SPACK_ENV) && spack load netcdf-c && pkg-config --libs netcdf 2>/dev/null || echo "-L$(SPACK_ROOT)/opt/spack/linux-neoverse_v2/netcdf-c/lib -lnetcdf")
+    NETCDF_LIBS := $(shell $(SPACK_ENV) && spack load netcdf-c && pkg-config --libs netcdf 2>/dev/null || echo "-L$(shell $(SPACK_ENV) && spack location -i netcdf-c)/lib -lnetcdf")
 endif
 
 ifeq ($(HDF5_CFLAGS),)
-    HDF5_CFLAGS := $(shell $(SPACK_ENV) && spack load hdf5 && pkg-config --cflags hdf5 2>/dev/null || echo "-I$(SPACK_ROOT)/opt/spack/linux-neoverse_v2/hdf5/include")
+    HDF5_CFLAGS := $(shell $(SPACK_ENV) && spack load hdf5 && pkg-config --cflags hdf5 2>/dev/null || echo "-I$(shell $(SPACK_ENV) && spack location -i hdf5)/include")
 endif
 
 ifeq ($(HDF5_LIBS),)
-    HDF5_LIBS := $(shell $(SPACK_ENV) && spack load hdf5 && pkg-config --libs hdf5 2>/dev/null || echo "-L$(SPACK_ROOT)/opt/spack/linux-neoverse_v2/hdf5/lib -lhdf5")
+    HDF5_LIBS := $(shell $(SPACK_ENV) && spack load hdf5 && pkg-config --libs hdf5 2>/dev/null || echo "-L$(shell $(SPACK_ENV) && spack location -i hdf5)/lib -lhdf5")
+endif
+
+ifeq ($(ZLIB_CFLAGS),)
+    ZLIB_CFLAGS := $(shell $(SPACK_ENV) && spack load zlib && pkg-config --cflags zlib 2>/dev/null || echo "-I$(shell $(SPACK_ENV) && spack location -i zlib)/include")
+endif
+
+ifeq ($(ZLIB_LIBS),)
+    ZLIB_LIBS := $(shell $(SPACK_ENV) && spack load zlib && pkg-config --libs zlib 2>/dev/null || echo "-L$(shell $(SPACK_ENV) && spack location -i zlib)/lib -lz")
+endif
+
+# Ensure ZLIB_LIBS always includes library path if it's missing
+ifeq ($(findstring -L,$(ZLIB_LIBS)),)
+    ZLIB_LIBS := -L$(shell $(SPACK_ENV) && spack location -i zlib)/lib $(ZLIB_LIBS)
+endif
+
+# Ensure HDF5_LIBS always includes -lhdf5 if it's missing
+ifeq ($(findstring -lhdf5,$(HDF5_LIBS)),)
+    HDF5_LIBS += -lhdf5_hl -lhdf5
+endif
+
+# Ensure HDF5_LIBS always includes -lhdf5_hl for NetCDF dimension scale support
+ifeq ($(findstring -lhdf5_hl,$(HDF5_LIBS)),)
+    HDF5_LIBS := $(subst -lhdf5,-lhdf5_hl -lhdf5,$(HDF5_LIBS))
 endif
 
 # Get library paths for runtime
-NETCDF_LIBDIR := $(shell $(SPACK_ENV) && spack load netcdf-c && pkg-config --variable=libdir netcdf 2>/dev/null || echo "$(SPACK_ROOT)/opt/spack/linux-neoverse_v2/netcdf-c/lib")
-HDF5_LIBDIR := $(shell $(SPACK_ENV) && spack load hdf5 && pkg-config --variable=libdir hdf5 2>/dev/null || echo "$(SPACK_ROOT)/opt/spack/linux-neoverse_v2/hdf5/lib")
+NETCDF_LIBDIR := $(shell $(SPACK_ENV) && spack load netcdf-c && pkg-config --variable=libdir netcdf 2>/dev/null || echo "$(shell $(SPACK_ENV) && spack location -i netcdf-c)/lib")
+HDF5_LIBDIR := $(shell $(SPACK_ENV) && spack load hdf5 && pkg-config --variable=libdir hdf5 2>/dev/null || echo "$(shell $(SPACK_ENV) && spack location -i hdf5)/lib")
+ZLIB_LIBDIR := $(shell $(SPACK_ENV) && spack load zlib && pkg-config --variable=libdir zlib 2>/dev/null || echo "$(shell $(SPACK_ENV) && spack location -i zlib)/lib")
 
 # Add RPATH to ensure runtime library location
-LDFLAGS += -Wl,-rpath,$(NETCDF_LIBDIR) -Wl,-rpath,$(HDF5_LIBDIR)
+LDFLAGS += -Wl,-rpath,$(NETCDF_LIBDIR) -Wl,-rpath,$(HDF5_LIBDIR) -Wl,-rpath,$(ZLIB_LIBDIR)
 
 # Source files
 SRCDIR = src
@@ -67,22 +93,22 @@ all: $(NETCDF_TARGET) $(HDF5_TARGET) $(HDF5_SIZE_TARGET) $(BITROUNDING_TARGET)
 
 $(NETCDF_TARGET): $(NETCDF_OBJECTS)
 	@echo "Linking $(NETCDF_TARGET)..."
-	$(CC) $(NETCDF_OBJECTS) -o $@ $(LDFLAGS) $(NETCDF_LIBS)
+	$(CC) $(NETCDF_OBJECTS) -o $@ $(LDFLAGS) $(NETCDF_LIBS) $(HDF5_LIBS) $(ZLIB_LIBS) -lm -ldl
 	@echo "Build complete: $(NETCDF_TARGET)"
 
 $(HDF5_TARGET): $(HDF5_OBJECTS)
 	@echo "Linking $(HDF5_TARGET)..."
-	$(CC) $(HDF5_OBJECTS) -o $@ $(LDFLAGS) $(HDF5_LIBS)
+	$(CC) $(HDF5_OBJECTS) -o $@ $(LDFLAGS) $(HDF5_LIBS) $(ZLIB_LIBS) -lm -ldl
 	@echo "Build complete: $(HDF5_TARGET)"
 
 $(HDF5_SIZE_TARGET): $(HDF5_SIZE_OBJECTS)
 	@echo "Linking $(HDF5_SIZE_TARGET)..."
-	$(CC) $(HDF5_SIZE_OBJECTS) -o $@ $(LDFLAGS) $(HDF5_LIBS)
+	$(CC) $(HDF5_SIZE_OBJECTS) -o $@ $(LDFLAGS) $(HDF5_LIBS) $(ZLIB_LIBS) -lm -ldl
 	@echo "Build complete: $(HDF5_SIZE_TARGET)"
 
 $(BITROUNDING_TARGET): $(BITROUNDING_OBJECTS)
 	@echo "Linking $(BITROUNDING_TARGET)..."
-	$(CC) $(BITROUNDING_OBJECTS) -o $@ $(LDFLAGS) $(NETCDF_LIBS)
+	$(CC) $(BITROUNDING_OBJECTS) -o $@ $(LDFLAGS) $(NETCDF_LIBS) $(HDF5_LIBS) $(ZLIB_LIBS) -lm -ldl
 	@echo "Build complete: $(BITROUNDING_TARGET)"
 
 # NetCDF objects
@@ -167,6 +193,8 @@ print-vars:
 	@echo "NETCDF_LIBS: $(NETCDF_LIBS)"
 	@echo "HDF5_CFLAGS: $(HDF5_CFLAGS)"
 	@echo "HDF5_LIBS: $(HDF5_LIBS)"
+	@echo "ZLIB_CFLAGS: $(ZLIB_CFLAGS)"
+	@echo "ZLIB_LIBS: $(ZLIB_LIBS)"
 	@echo "NETCDF_SOURCES: $(NETCDF_SOURCES)"
 	@echo "HDF5_SOURCES: $(HDF5_SOURCES)"
 	@echo "NETCDF_OBJECTS: $(NETCDF_OBJECTS)"

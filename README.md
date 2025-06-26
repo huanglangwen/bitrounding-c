@@ -70,8 +70,8 @@ Python implementation for analyzing bit usage patterns in NetCDF variables.
 ### Building C Tools
 ```bash
 # Source Spack and set config path
-source /capstor/scratch/cscs/lhuang/bitrounding/spack/share/spack/setup-env.sh
-export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/bitrounding/.spack
+source /capstor/scratch/cscs/lhuang/spack/share/spack/setup-env.sh
+export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/.spack
 
 # Load required tools
 spack load netcdf-c
@@ -83,8 +83,8 @@ make all
 ### Spack Environment
 ```bash
 # Source Spack and set config path
-source /capstor/scratch/cscs/lhuang/bitrounding/spack/share/spack/setup-env.sh
-export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/bitrounding/.spack
+source /capstor/scratch/cscs/lhuang/spack/share/spack/setup-env.sh
+export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/.spack
 
 # Load required tools
 spack load hdf5

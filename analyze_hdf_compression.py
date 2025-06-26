@@ -21,8 +21,8 @@ def run_h5ls(filepath):
         # Need to source Spack environment first
         cmd = [
             'bash', '-c', 
-            f'source /capstor/scratch/cscs/lhuang/bitrounding/spack/share/spack/setup-env.sh && '
-            f'export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/bitrounding/.spack && '
+            f'source /capstor/scratch/cscs/lhuang/spack/share/spack/setup-env.sh && '
+            f'export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/.spack && '
             f'spack load hdf5 && h5ls -rv "{filepath}"'
         ]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
