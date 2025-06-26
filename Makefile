@@ -7,8 +7,8 @@ CFLAGS = -Wall -Wextra -O3 -std=c99 -g
 LDFLAGS = -lm
 
 # Spack integration
-SPACK_ROOT = /capstor/scratch/cscs/lhuang/cdo/spack
-SPACK_CONFIG = /capstor/scratch/cscs/lhuang/cdo/.spack
+SPACK_ROOT = /capstor/scratch/cscs/lhuang/bitrounding/spack
+SPACK_CONFIG = /capstor/scratch/cscs/lhuang/bitrounding/.spack
 SPACK_ENV = source $(SPACK_ROOT)/share/spack/setup-env.sh && export SPACK_USER_CONFIG_PATH=$(SPACK_CONFIG)
 
 # Try to get library flags from pkg-config if available

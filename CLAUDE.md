@@ -43,7 +43,7 @@
 
 - Spack Location and User Configuration:
   ```bash
-  source /capstor/scratch/cscs/lhuang/cdo/spack/share/spack/setup-env.sh && export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/cdo/.spack
+  source /capstor/scratch/cscs/lhuang/bitrounding/spack/share/spack/setup-env.sh && export SPACK_USER_CONFIG_PATH=/capstor/scratch/cscs/lhuang/bitrounding/.spack
   ```
 
 ## Testing Scripts
