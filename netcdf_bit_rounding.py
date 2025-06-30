@@ -13,16 +13,6 @@ import numpy as np
 import xarray as xr
 from bit_rounding import analyze_and_get_nsb, bitround
 
-def print_usage():
-    """Print usage information"""
-    print("Usage: python netcdf_bit_rounding.py <inflevel> <input.nc> <output.nc> [--complevel=x]")
-    print("\nNetCDF Bit Rounding Tool")
-    print("Applies bitrounding to float variables in NetCDF files.")
-    print("\nArguments:")
-    print("  inflevel    - Information level threshold (0.0-1.0, typically 0.9999)")
-    print("  input.nc    - Input NetCDF file")
-    print("  output.nc   - Output NetCDF file")
-    print("  --complevel - Optional compression level (1-9), enables shuffle filter")
 
 def get_file_size(filepath):
     """Get file size in bytes"""
@@ -48,7 +38,7 @@ def contains_missing_values(data_array):
     
     return False
 
-def process_float32_variable(var_name, data_array, inflevel):
+def process_float32_variable(var_name, data_array, inflevel, monotonic=False, exp_lambda=0.5):
     """Process a single float32 variable with bit rounding"""
     print(f"Variable {var_name}: ", end="", flush=True)
     
@@ -78,7 +68,7 @@ def process_float32_variable(var_name, data_array, inflevel):
     if ndims <= 2:
         # For 1D or 2D variables, process as single chunk
         data_flat = data.flatten()
-        nsb = analyze_and_get_nsb(data_flat, inflevel)
+        nsb = analyze_and_get_nsb(data_flat, inflevel, monotonic=monotonic, exp_lambda=exp_lambda)
         
         if nsb > 0 and nsb <= 23:
             bitround(nsb, data_flat, missval)
@@ -118,7 +108,7 @@ def process_float32_variable(var_name, data_array, inflevel):
             end_idx = start_idx + chunk_size
             chunk_data = data_flat[start_idx:end_idx]
             
-            nsb = analyze_and_get_nsb(chunk_data, inflevel)
+            nsb = analyze_and_get_nsb(chunk_data, inflevel, monotonic=monotonic, exp_lambda=exp_lambda)
             if nsb > 0 and nsb <= 23:
                 bitround(nsb, chunk_data, missval)
                 chunk_processed += 1
@@ -145,35 +135,55 @@ def process_float32_variable(var_name, data_array, inflevel):
 def main():
     """Main function"""
     # Parse command line arguments
-    if len(sys.argv) < 4 or len(sys.argv) > 5:
-        print_usage()
-        return 1
+    parser = argparse.ArgumentParser(
+        description="NetCDF Bit Rounding Tool - Applies bitrounding to float variables in NetCDF files.",
+        prog="python netcdf_bit_rounding.py"
+    )
+    
+    parser.add_argument(
+        'inflevel',
+        type=float,
+        help='Information level threshold (0.0-1.0, typically 0.9999)'
+    )
+    
+    parser.add_argument(
+        'input_file',
+        help='Input NetCDF file'
+    )
+    
+    parser.add_argument(
+        'output_file', 
+        help='Output NetCDF file'
+    )
+    
+    parser.add_argument(
+        '--complevel',
+        type=int,
+        default=0,
+        choices=range(1, 10),
+        help='Optional compression level (1-9), enables shuffle filter'
+    )
+    parser.add_argument(
+        '--monotonic',
+        action='store_true',
+        help='Use monotonic gradient-based method for bit rounding'
+    )
+    parser.add_argument(
+        '--exp_lambda',
+        type=float,
+        default=0.5,
+        help='Exponential lambda for moving average in monotonic method (default=0.5)'
+    )
     
     try:
-        inflevel = float(sys.argv[1])
-        input_file = sys.argv[2]
-        output_file = sys.argv[3]
-    except ValueError:
-        print("Error: inflevel must be a number")
+        args = parser.parse_args()
+    except SystemExit:
         return 1
     
-    compression_level = 0
-    
-    # Parse optional compression argument
-    if len(sys.argv) == 5:
-        if sys.argv[4].startswith("--complevel="):
-            try:
-                compression_level = int(sys.argv[4][12:])
-                if compression_level < 1 or compression_level > 9:
-                    print("Error: compression level must be between 1 and 9")
-                    return 1
-            except ValueError:
-                print("Error: invalid compression level")
-                return 1
-        else:
-            print(f"Error: Invalid argument '{sys.argv[4]}'")
-            print_usage()
-            return 1
+    inflevel = args.inflevel
+    input_file = args.input_file
+    output_file = args.output_file
+    compression_level = args.complevel
     
     if inflevel < 0.0 or inflevel > 1.0:
         print("Error: inflevel must be between 0.0 and 1.0")
@@ -207,7 +217,7 @@ def main():
                 
                
                 # Process the variable
-                processed_var, was_bitrounded = process_float32_variable(var_name, ds[var_name], inflevel)
+                processed_var, was_bitrounded = process_float32_variable(var_name, ds[var_name], inflevel, args.monotonic, args.exp_lambda)
                 
                 # Update the dataset with processed variable in place
                 ds[var_name] = processed_var

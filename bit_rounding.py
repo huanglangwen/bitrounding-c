@@ -229,7 +229,137 @@ def get_keepbits(bit_info, inflevel):
     return nsb
 
 @jit(nopython=True)
-def analyze_and_get_nsb(data, inflevel):
+def get_keepbits_gradient(bit_info, threshold, tolerance):
+    """
+    Get number of bits to keep using gradient-based method with artificial information removal.
+    
+    This function calculates a modified CDF for bit information and removes artificial information
+    by identifying where the gradient becomes close to the tolerance while maintaining the 
+    threshold of cumulative information content.
+    
+    Parameters:
+    -----------
+    bit_info : numpy.ndarray
+        Information content of each bit
+    threshold : float  
+        Minimum cumulative sum of information content before artificial information filter is applied
+    tolerance : float
+        The tolerance value below which gradient starts becoming constant
+        
+    Returns:
+    --------
+    int
+        Number of bits to keep
+    """
+    floatNMBITS = 9
+    keepMantissaBits = 23
+    
+    # Clean bit info
+    infoPerBitCleaned = np.zeros(NBITS)
+    for i in range(NBITS):
+        if bit_info[i] >= 0:
+            infoPerBitCleaned[i] = bit_info[i]
+    
+    # Calculate cumulative sum
+    for i in range(1, NBITS):
+        infoPerBitCleaned[i] += infoPerBitCleaned[i - 1]
+    
+    lastBit = infoPerBitCleaned[NBITS - 1]
+    if lastBit > 0.0:
+        # Calculate CDF
+        cdf = infoPerBitCleaned / lastBit
+        
+        # Calculate gradient of CDF
+        gradient_array = np.zeros(NBITS - 1)
+        for i in range(NBITS - 1):
+            gradient_array[i] = cdf[i + 1] - cdf[i]
+        
+        # Total sum of information
+        infSum = 0.0
+        for i in range(NBITS):
+            infSum += bit_info[i]
+        
+        # Sign and exponent bits (assuming 32-bit float: 1 sign + 8 exponent = 9 bits)
+        sign_and_exponent = floatNMBITS
+        
+        # Sum of sign and exponent bits
+        SignExpSum = 0.0
+        for i in range(sign_and_exponent):
+            SignExpSum += bit_info[i]
+        
+        # Initialize current bit sum with sign and exponent sum
+        CurrentBit_Sum = SignExpSum
+        infbits = NBITS - 1  # Default to all bits
+        
+        # Find intersection point where gradient < tolerance and cumulative sum >= threshold * infSum
+        for i in range(sign_and_exponent, len(gradient_array) - 1):
+            CurrentBit_Sum += bit_info[i]
+            if gradient_array[i] < tolerance and CurrentBit_Sum >= threshold * infSum:
+                infbits = i
+                break
+        
+        # Calculate keep bits based on infbits
+        keepMantissaBits = infbits + 1 - floatNMBITS
+    
+    # Ensure valid range
+    nsb = keepMantissaBits
+    if nsb < 1:
+        nsb = 1
+    if nsb > 23:
+        nsb = 23
+    
+    return nsb
+
+@jit(nopython=True)
+def get_keepbits_monotonic(bit_info, inflevel, exp_lambda=0.5):
+    """Get number of bits to keep based on information level
+    When calculating CDF, it uses the monotonic component of
+    exponential moving averaged bit information.
+    """
+    floatNMBITS = 9
+    keepMantissaBits = 23
+    
+    # Clean bit info
+    infoPerBitCleaned = np.zeros(NBITS)
+    infoPerBitExpAvg = np.zeros(NBITS)
+    flag = False
+    assert exp_lambda >= 0.0 and exp_lambda < 1.0, "exp_lambda must be in [0, 1)"
+    for i in range(NBITS):
+        if i > 0:
+            infoPerBitExpAvg[i] = exp_lambda * infoPerBitExpAvg[i - 1] + (1 - exp_lambda) * bit_info[i]
+        if i < floatNMBITS:
+            infoPerBitCleaned[i] = bit_info[i]
+            continue
+        if i >= floatNMBITS + 2 and infoPerBitExpAvg[i] > infoPerBitExpAvg[i - 2]:
+            flag = True
+        infoPerBitCleaned[i] = 0 if flag else bit_info[i]
+    
+    # Calculate cumulative sum
+    for i in range(1, NBITS):
+        infoPerBitCleaned[i] += infoPerBitCleaned[i - 1]
+    
+    lastBit = infoPerBitCleaned[NBITS - 1]
+    if lastBit > 0.0:
+        # Calculate CDF
+        cdf = infoPerBitCleaned / lastBit
+        
+        nonMantissaBits = floatNMBITS
+        
+        for i in range(NBITS):
+            if cdf[i] > inflevel:
+                keepMantissaBits = i + 1 - nonMantissaBits
+                break
+    
+    nsb = keepMantissaBits
+    if nsb < 1:
+        nsb = 1
+    if nsb > 23:
+        nsb = 23
+    
+    return nsb
+
+@jit(nopython=True)
+def analyze_and_get_nsb(data, inflevel, monotonic=False, exp_lambda=0.5):
     """Analyze data and get number of significant bits"""
     if len(data) < 2:
         return 1
@@ -241,7 +371,12 @@ def analyze_and_get_nsb(data, inflevel):
     bit_info = bitinformation(v_copy)
     
     # Get number of bits to keep
-    nsb = get_keepbits(bit_info, inflevel)
+    if monotonic:
+        nsb = get_keepbits_monotonic(bit_info, inflevel, exp_lambda=exp_lambda)
+    else:
+        nsb = get_keepbits(bit_info, inflevel)
+        # Use gradient-based method
+        #nsb = get_keepbits_gradient(bit_info, inflevel, tolerance=0.01)
     
     return nsb
 
