@@ -38,7 +38,7 @@ def contains_missing_values(data_array):
     
     return False
 
-def process_float32_variable(var_name, data_array, inflevel, monotonic=False, exp_lambda=0.5):
+def process_float32_variable(var_name, data_array, inflevel, monotonic=False):
     """Process a single float32 variable with bit rounding"""
     print(f"Variable {var_name}: ", end="", flush=True)
     
@@ -68,7 +68,7 @@ def process_float32_variable(var_name, data_array, inflevel, monotonic=False, ex
     if ndims <= 2:
         # For 1D or 2D variables, process as single chunk
         data_flat = data.flatten()
-        nsb = analyze_and_get_nsb(data_flat, inflevel, monotonic=monotonic, exp_lambda=exp_lambda)
+        nsb = analyze_and_get_nsb(data_flat, inflevel, monotonic=monotonic)
         
         if nsb > 0 and nsb <= 23:
             bitround(nsb, data_flat, missval)
@@ -108,7 +108,7 @@ def process_float32_variable(var_name, data_array, inflevel, monotonic=False, ex
             end_idx = start_idx + chunk_size
             chunk_data = data_flat[start_idx:end_idx]
             
-            nsb = analyze_and_get_nsb(chunk_data, inflevel, monotonic=monotonic, exp_lambda=exp_lambda)
+            nsb = analyze_and_get_nsb(chunk_data, inflevel, monotonic=monotonic)
             if nsb > 0 and nsb <= 23:
                 bitround(nsb, chunk_data, missval)
                 chunk_processed += 1
@@ -164,15 +164,9 @@ def main():
         help='Optional compression level (1-9), enables shuffle filter'
     )
     parser.add_argument(
-        '--monotonic',
+        '--monotonic-bitinfo','--monotonic_bitinfo',
         action='store_true',
         help='Use monotonic gradient-based method for bit rounding'
-    )
-    parser.add_argument(
-        '--exp_lambda',
-        type=float,
-        default=0.5,
-        help='Exponential lambda for moving average in monotonic method (default=0.5)'
     )
     
     try:
@@ -190,11 +184,8 @@ def main():
         return 1
     
     # Print processing info
-    if compression_level > 0:
-        print(f"Processing: {input_file} -> {output_file} (inflevel={inflevel:.6f}, compression={compression_level}, shuffle=enabled)")
-    else:
-        print(f"Processing: {input_file} -> {output_file} (inflevel={inflevel:.6f})")
-    
+    print(f"Processing: {input_file} -> {output_file} (inflevel={inflevel:.6f}, compression={compression_level}, shuffle={'enabled' if compression_level > 0 else 'disabled'}, monotonic={args.monotonic_bitinfo})")
+
     try:
         # Load input NetCDF file
         print("Loading input file...")
@@ -217,7 +208,7 @@ def main():
                 
                
                 # Process the variable
-                processed_var, was_bitrounded = process_float32_variable(var_name, ds[var_name], inflevel, args.monotonic, args.exp_lambda)
+                processed_var, was_bitrounded = process_float32_variable(var_name, ds[var_name], inflevel, args.monotonic_bitinfo)
                 
                 # Update the dataset with processed variable in place
                 ds[var_name] = processed_var
@@ -261,6 +252,7 @@ def main():
         else:
             ds.to_netcdf(output_file, engine="h5netcdf")
         
+        total_uncompressed_size = ds.nbytes
         # Close the dataset
         ds.close()
         
@@ -277,6 +269,7 @@ def main():
             print(f"  Input file size: {input_size / (1024.0 * 1024.0):.2f} MB")
             print(f"  Output file size: {output_size / (1024.0 * 1024.0):.2f} MB")
             print(f"  Compression ratio: {input_size / output_size:.2f}:1")
+            print(f"  Theoretical compression ratio: {total_uncompressed_size / output_size:.2f}:1")
         
         return 0
         

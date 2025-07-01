@@ -362,7 +362,7 @@ def get_keepbits_monotonic(bit_info, inflevel):
     return nsb
 
 @jit(nopython=True)
-def analyze_and_get_nsb(data, inflevel, monotonic=False, exp_lambda=0.5):
+def analyze_and_get_nsb(data, inflevel, monotonic=False):
     """Analyze data and get number of significant bits"""
     if len(data) < 2:
         return 1
