@@ -311,7 +311,7 @@ def get_keepbits_gradient(bit_info, threshold, tolerance):
     return nsb
 
 @jit(nopython=True)
-def get_keepbits_monotonic(bit_info, inflevel, exp_lambda=0.5):
+def get_keepbits_monotonic(bit_info, inflevel):
     """Get number of bits to keep based on information level
     When calculating CDF, it uses the monotonic component of
     exponential moving averaged bit information.
@@ -321,41 +321,44 @@ def get_keepbits_monotonic(bit_info, inflevel, exp_lambda=0.5):
     
     # Clean bit info
     infoPerBitCleaned = np.zeros(NBITS)
-    infoPerBitExpAvg = np.zeros(NBITS)
-    flag = False
-    assert exp_lambda >= 0.0 and exp_lambda < 1.0, "exp_lambda must be in [0, 1)"
+    infoCDF = np.zeros(NBITS)
+    flag = 0
+    current_min = bit_info[floatNMBITS]
     for i in range(NBITS):
-        if i > 0:
-            infoPerBitExpAvg[i] = exp_lambda * infoPerBitExpAvg[i - 1] + (1 - exp_lambda) * bit_info[i]
         if i < floatNMBITS:
             infoPerBitCleaned[i] = bit_info[i]
             continue
-        if i >= floatNMBITS + 2 and infoPerBitExpAvg[i] > infoPerBitExpAvg[i - 2]:
-            flag = True
-        infoPerBitCleaned[i] = 0 if flag else bit_info[i]
+        current_min = min(current_min, bit_info[i])
+        if bit_info[i] > current_min * 1.5:
+            flag += 1
+        infoPerBitCleaned[i] = 0 if flag > 2 else bit_info[i]
     
+
     # Calculate cumulative sum
+    infoCDF[0] = infoPerBitCleaned[0]
     for i in range(1, NBITS):
-        infoPerBitCleaned[i] += infoPerBitCleaned[i - 1]
+        infoCDF[i] = infoPerBitCleaned[i] + infoCDF[i - 1]
     
-    lastBit = infoPerBitCleaned[NBITS - 1]
+    lastBit = infoCDF[NBITS - 1]
     if lastBit > 0.0:
-        # Calculate CDF
-        cdf = infoPerBitCleaned / lastBit
-        
-        nonMantissaBits = floatNMBITS
-        
-        for i in range(NBITS):
-            if cdf[i] > inflevel:
-                keepMantissaBits = i + 1 - nonMantissaBits
-                break
+    # Calculate CDF
+        cdf = infoCDF / lastBit
+    else:
+        cdf = infoCDF
+
+    nonMantissaBits = floatNMBITS
+    
+    for i in range(NBITS):
+        if cdf[i] > inflevel:
+            keepMantissaBits = i + 1 - nonMantissaBits
+            break
     
     nsb = keepMantissaBits
     if nsb < 1:
         nsb = 1
     if nsb > 23:
         nsb = 23
-    
+
     return nsb
 
 @jit(nopython=True)
@@ -372,7 +375,7 @@ def analyze_and_get_nsb(data, inflevel, monotonic=False, exp_lambda=0.5):
     
     # Get number of bits to keep
     if monotonic:
-        nsb = get_keepbits_monotonic(bit_info, inflevel, exp_lambda=exp_lambda)
+        nsb = get_keepbits_monotonic(bit_info, inflevel)
     else:
         nsb = get_keepbits(bit_info, inflevel)
         # Use gradient-based method
