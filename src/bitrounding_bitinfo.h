@@ -17,5 +17,6 @@ typedef struct {
 void signed_exponent(float *A, size_t n);
 MutualInformation bitinformation(float *A, size_t n);
 int get_keepbits(const MutualInformation *bitInfo, double inflevel);
+int get_keepbits_monotonic(const MutualInformation *bitInfo, double inflevel);
 
 #endif

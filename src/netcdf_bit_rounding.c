@@ -30,7 +30,7 @@ static long file_size(FILE *f) {
     return size;
 }
 
-static int analyze_and_get_nsb(size_t len, float *v, double infLevel) {
+static int analyze_and_get_nsb(size_t len, float *v, double infLevel, int use_monotonic) {
     if (len < 2) return 1;
     
     float *v_copy = malloc(len * sizeof(float));
@@ -40,7 +40,12 @@ static int analyze_and_get_nsb(size_t len, float *v, double infLevel) {
     signed_exponent(v_copy, len);
     
     MutualInformation bitInfo = bitinformation(v_copy, len);
-    int nsb = get_keepbits(&bitInfo, infLevel);
+    int nsb;
+    if (use_monotonic) {
+        nsb = get_keepbits_monotonic(&bitInfo, infLevel);
+    } else {
+        nsb = get_keepbits(&bitInfo, infLevel);
+    }
     
     free(v_copy);
     return nsb;
@@ -70,17 +75,34 @@ static void bitround(int nsb, size_t len, float *v, float missval) {
 }
 
 static void print_usage(const char *program_name) {
-    printf("Usage: %s <inflevel> <input.nc> <output.nc> [--complevel=x]\n", program_name);
+    printf("Usage: %s <inflevel> <input.nc> <output.nc> [--complevel=x] [--monotonic-bitinfo]\n", program_name);
     printf("\nNetCDF Bit Rounding Tool\n");
     printf("Applies bitrounding to float variables in NetCDF files.\n\n");
     printf("Arguments:\n");
-    printf("  inflevel    - Information level threshold (0.0-1.0, typically 0.9999)\n");
-    printf("  input.nc    - Input NetCDF file\n");
-    printf("  output.nc   - Output NetCDF file\n");
-    printf("  --complevel - Optional compression level (1-9), enables shuffle filter\n");
+    printf("  inflevel          - Information level threshold (0.0-1.0, typically 0.9999)\n");
+    printf("  input.nc          - Input NetCDF file\n");
+    printf("  output.nc         - Output NetCDF file\n");
+    printf("  --complevel       - Optional compression level (1-9), enables shuffle filter\n");
+    printf("  --monotonic-bitinfo - Use monotonic filtering when calculating bit information\n");
 }
 
 static int copy_non_float_variable(int ncid_in, int ncid_out, int varid, nc_type vartype, size_t varsize) {
+    char varname[NC_MAX_NAME + 1];
+    nc_inq_varname(ncid_in, varid, varname);
+    
+    const char* dtype_name;
+    switch (vartype) {
+        case NC_BYTE: dtype_name = "NC_BYTE"; break;
+        case NC_SHORT: dtype_name = "NC_SHORT"; break;
+        case NC_INT: dtype_name = "NC_INT"; break;
+        case NC_INT64: dtype_name = "NC_INT64"; break;
+        case NC_DOUBLE: dtype_name = "NC_DOUBLE"; break;
+        case NC_CHAR: dtype_name = "NC_CHAR"; break;
+        case NC_STRING: dtype_name = "NC_STRING"; break;
+        default: dtype_name = "UNKNOWN"; break;
+    }
+    
+    printf("Variable %s: dtype=%s, passthrough\n", varname, dtype_name);
     switch (vartype) {
         case NC_BYTE: {
             signed char *data = malloc(varsize * sizeof(signed char));
@@ -127,6 +149,26 @@ static int copy_non_float_variable(int ncid_in, int ncid_out, int varid, nc_type
             free(data);
             break;
         }
+        case NC_CHAR: {
+            char *data = malloc(varsize * sizeof(char));
+            if (!data) return -1;
+            if (nc_get_var_text(ncid_in, varid, data) == NC_NOERR) {
+                nc_put_var_text(ncid_out, varid, data);
+            }
+            free(data);
+            break;
+        }
+        case NC_STRING: {
+            char **data = malloc(varsize * sizeof(char*));
+            if (!data) return -1;
+            if (nc_get_var_string(ncid_in, varid, data) == NC_NOERR) {
+                nc_put_var_string(ncid_out, varid, (const char**)data);
+                nc_free_string(varsize, data);
+            } else {
+                free(data);
+            }
+            break;
+        }
         default:
             return -1;
     }
@@ -134,7 +176,7 @@ static int copy_non_float_variable(int ncid_in, int ncid_out, int varid, nc_type
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 4 || argc > 5) {
+    if (argc < 4 || argc > 6) {
         print_usage(argv[0]);
         return EXIT_FAILURE;
     }
@@ -144,17 +186,20 @@ int main(int argc, char *argv[]) {
     const char *output_file = argv[3];
     
     int compression_level = 0;
+    int use_monotonic = 0;
     
-    // Parse optional compression argument
-    if (argc == 5) {
-        if (strncmp(argv[4], "--complevel=", 12) == 0) {
-            compression_level = atoi(argv[4] + 12);
+    // Parse optional arguments
+    for (int i = 4; i < argc; i++) {
+        if (strncmp(argv[i], "--complevel=", 12) == 0) {
+            compression_level = atoi(argv[i] + 12);
             if (compression_level < 1 || compression_level > 9) {
                 fprintf(stderr, "Error: compression level must be between 1 and 9\n");
                 return EXIT_FAILURE;
             }
+        } else if (strcmp(argv[i], "--monotonic-bitinfo") == 0) {
+            use_monotonic = 1;
         } else {
-            fprintf(stderr, "Error: Invalid argument '%s'\n", argv[4]);
+            fprintf(stderr, "Error: Invalid argument '%s'\n", argv[i]);
             print_usage(argv[0]);
             return EXIT_FAILURE;
         }
@@ -169,10 +214,12 @@ int main(int argc, char *argv[]) {
     int ndims, nvars, ngatts, unlimdimid;
     
     if (compression_level > 0) {
-        printf("Processing: %s -> %s (inflevel=%.6f, compression=%d, shuffle=enabled)\n", 
-               input_file, output_file, inflevel, compression_level);
+        printf("Processing: %s -> %s (inflevel=%.6f, compression=%d, shuffle=enabled%s)\n", 
+               input_file, output_file, inflevel, compression_level, 
+               use_monotonic ? ", monotonic-bitinfo=enabled" : "");
     } else {
-        printf("Processing: %s -> %s (inflevel=%.6f)\n", input_file, output_file, inflevel);
+        printf("Processing: %s -> %s (inflevel=%.6f%s)\n", input_file, output_file, inflevel,
+               use_monotonic ? ", monotonic-bitinfo=enabled" : "");
     }
     
     if (nc_open(input_file, NC_NOWRITE, &ncid_in) != NC_NOERR) {
@@ -372,7 +419,7 @@ int main(int argc, char *argv[]) {
                 
                 if (varndims <= 2) {
                     // For 1D or 2D variables, process as single chunk
-                    int nsb = analyze_and_get_nsb(varsize, data, inflevel);
+                    int nsb = analyze_and_get_nsb(varsize, data, inflevel, use_monotonic);
                     if (nsb > 0 && nsb <= 23) {
                         bitround(nsb, varsize, data, missval);
                         printf(", NSB=%d\n", nsb);
@@ -392,7 +439,7 @@ int main(int argc, char *argv[]) {
                     for (size_t chunk = 0; chunk < num_chunks; chunk++) {
                         float *chunk_data = data + (chunk * chunk_size);
                         
-                        int nsb = analyze_and_get_nsb(chunk_size, chunk_data, inflevel);
+                        int nsb = analyze_and_get_nsb(chunk_size, chunk_data, inflevel, use_monotonic);
                         if (nsb > 0 && nsb <= 23) {
                             bitround(nsb, chunk_size, chunk_data, missval);
                             chunk_processed++;

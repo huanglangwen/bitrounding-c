@@ -68,6 +68,20 @@ Python implementation for analyzing bit usage patterns in NetCDF variables.
 ## Setup
 
 ### Building C Tools
+
+#### Option 1: Using CMake (Recommended)
+```bash
+# Create build directory
+mkdir build && cd build
+
+# Configure and build
+cmake ..
+make
+
+# Built executables will be in the build directory
+```
+
+#### Option 2: Using Make with Spack
 ```bash
 # Source Spack and set config path
 source /capstor/scratch/cscs/lhuang/spack/share/spack/setup-env.sh
@@ -79,6 +93,12 @@ spack load netcdf-c
 # Build all tools
 make all
 ```
+
+#### Build Requirements
+- **CMake**: Uses system-installed NetCDF, HDF5, and ZLIB libraries
+- **Make**: Uses Spack environment for library management
+- **GCC**: C99 standard support required
+- **Libraries**: NetCDF-C, HDF5 (with HL), ZLIB
 
 ### Spack Environment
 ```bash

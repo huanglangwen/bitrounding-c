@@ -152,3 +152,61 @@ int get_keepbits(const MutualInformation *bitInfo, double inflevel) {
     
     return nsb;
 }
+
+int get_keepbits_monotonic(const MutualInformation *bitInfo, double inflevel) {
+    const int floatNMBITS = 9;
+    int keepMantissaBits = 23;
+    
+    // Clean bit info with monotonic filtering
+    MutualInformation infoPerBitCleaned = {0};
+    int flag = 0;
+    double current_min = bitInfo->M[floatNMBITS];
+    
+    for (int i = 0; i < NBITS; ++i) {
+        if (i < floatNMBITS) {
+            infoPerBitCleaned.M[i] = bitInfo->M[i];
+            continue;
+        }
+        
+        if (bitInfo->M[i] < current_min) {
+            current_min = bitInfo->M[i];
+        }
+        
+        if (bitInfo->M[i] > current_min * 1.5) {
+            flag++;
+        }
+        
+        infoPerBitCleaned.M[i] = (flag > 2) ? 0.0 : bitInfo->M[i];
+    }
+    
+    // Calculate cumulative sum (CDF calculation)
+    MutualInformation infoCDF = {0};
+    infoCDF.M[0] = infoPerBitCleaned.M[0];
+    for (int i = 1; i < NBITS; ++i) {
+        infoCDF.M[i] = infoPerBitCleaned.M[i] + infoCDF.M[i - 1];
+    }
+    
+    double lastBit = infoCDF.M[NBITS - 1];
+    if (lastBit > 0.0) {
+        // Calculate CDF
+        MutualInformation cdf = {0};
+        for (int i = 0; i < NBITS; ++i) {
+            cdf.M[i] = infoCDF.M[i] / lastBit;
+        }
+        
+        const int nonMantissaBits = floatNMBITS;
+        
+        for (int i = 0; i < NBITS; ++i) {
+            if (cdf.M[i] > inflevel) {
+                keepMantissaBits = i + 1 - nonMantissaBits;
+                break;
+            }
+        }
+    }
+    
+    int nsb = keepMantissaBits;
+    if (nsb < 1) nsb = 1;
+    if (nsb > 23) nsb = 23;
+    
+    return nsb;
+}
