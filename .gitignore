@@ -25,3 +25,7 @@ cdo-*/
 
 # UV environment
 .venv/
+
+__pycache__
+
+build/
