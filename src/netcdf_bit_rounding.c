@@ -10,6 +10,34 @@
 #define MAX_VARS 100
 #define MAX_NAME_LEN 256
 
+static const char* get_nc_type_name(nc_type vartype) {
+    switch (vartype) {
+        case NC_BYTE: return "NC_BYTE";
+        case NC_SHORT: return "NC_SHORT";
+        case NC_INT: return "NC_INT";
+        case NC_INT64: return "NC_INT64";
+        case NC_FLOAT: return "NC_FLOAT";
+        case NC_DOUBLE: return "NC_DOUBLE";
+        case NC_CHAR: return "NC_CHAR";
+        case NC_STRING: return "NC_STRING";
+        default: return "UNKNOWN";
+    }
+}
+
+static size_t get_nc_type_size(nc_type vartype) {
+    switch (vartype) {
+        case NC_BYTE: return sizeof(signed char);
+        case NC_SHORT: return sizeof(short);
+        case NC_INT: return sizeof(int);
+        case NC_INT64: return sizeof(long long);
+        case NC_FLOAT: return sizeof(float);
+        case NC_DOUBLE: return sizeof(double);
+        case NC_CHAR: return sizeof(char);
+        case NC_STRING: return sizeof(char*);
+        default: return 0;
+    }
+}
+
 static long file_size(FILE *f) {
     long cur, size;
 
@@ -90,88 +118,33 @@ static int copy_non_float_variable(int ncid_in, int ncid_out, int varid, nc_type
     char varname[NC_MAX_NAME + 1];
     nc_inq_varname(ncid_in, varid, varname);
     
-    const char* dtype_name;
-    switch (vartype) {
-        case NC_BYTE: dtype_name = "NC_BYTE"; break;
-        case NC_SHORT: dtype_name = "NC_SHORT"; break;
-        case NC_INT: dtype_name = "NC_INT"; break;
-        case NC_INT64: dtype_name = "NC_INT64"; break;
-        case NC_DOUBLE: dtype_name = "NC_DOUBLE"; break;
-        case NC_CHAR: dtype_name = "NC_CHAR"; break;
-        case NC_STRING: dtype_name = "NC_STRING"; break;
-        default: dtype_name = "UNKNOWN"; break;
-    }
+    const char* dtype_name = get_nc_type_name(vartype);
+    size_t type_size = get_nc_type_size(vartype);
     
     printf("Variable %s: dtype=%s, passthrough\n", varname, dtype_name);
-    switch (vartype) {
-        case NC_BYTE: {
-            signed char *data = malloc(varsize * sizeof(signed char));
-            if (!data) return -1;
-            if (nc_get_var_schar(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_schar(ncid_out, varid, data);
-            }
+    
+    if (vartype == NC_STRING) {
+        char **data = malloc(varsize * sizeof(char*));
+        if (!data) return -1;
+        if (nc_get_var_string(ncid_in, varid, data) == NC_NOERR) {
+            nc_put_var_string(ncid_out, varid, (const char**)data);
+            nc_free_string(varsize, data);
+        } else {
             free(data);
-            break;
         }
-        case NC_SHORT: {
-            short *data = malloc(varsize * sizeof(short));
-            if (!data) return -1;
-            if (nc_get_var_short(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_short(ncid_out, varid, data);
-            }
-            free(data);
-            break;
+    } else if (type_size > 0) {
+        void *data = malloc(varsize * type_size);
+        if (!data) return -1;
+        
+        if (nc_get_vara(ncid_in, varid, NULL, NULL, data) == NC_NOERR) {
+            nc_put_vara(ncid_out, varid, NULL, NULL, data);
         }
-        case NC_INT: {
-            int *data = malloc(varsize * sizeof(int));
-            if (!data) return -1;
-            if (nc_get_var_int(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_int(ncid_out, varid, data);
-            }
-            free(data);
-            break;
-        }
-        case NC_INT64: {
-            long long *data = malloc(varsize * sizeof(long long));
-            if (!data) return -1;
-            if (nc_get_var_longlong(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_longlong(ncid_out, varid, data);
-            }
-            free(data);
-            break;
-        }
-        case NC_DOUBLE: {
-            double *data = malloc(varsize * sizeof(double));
-            if (!data) return -1;
-            if (nc_get_var_double(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_double(ncid_out, varid, data);
-            }
-            free(data);
-            break;
-        }
-        case NC_CHAR: {
-            char *data = malloc(varsize * sizeof(char));
-            if (!data) return -1;
-            if (nc_get_var_text(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_text(ncid_out, varid, data);
-            }
-            free(data);
-            break;
-        }
-        case NC_STRING: {
-            char **data = malloc(varsize * sizeof(char*));
-            if (!data) return -1;
-            if (nc_get_var_string(ncid_in, varid, data) == NC_NOERR) {
-                nc_put_var_string(ncid_out, varid, (const char**)data);
-                nc_free_string(varsize, data);
-            } else {
-                free(data);
-            }
-            break;
-        }
-        default:
-            return -1;
+        
+        free(data);
+    } else {
+        return -1;
     }
+    
     return 0;
 }
 
@@ -330,6 +303,7 @@ int main(int argc, char *argv[]) {
     
     int processed_vars = 0;
     int bitrounded_vars = 0;
+    size_t total_uncompressed_size = 0;
     
     for (int varid = 0; varid < nvars; varid++) {
         char varname[NC_MAX_NAME + 1];
@@ -350,6 +324,10 @@ int main(int argc, char *argv[]) {
         }
         
         processed_vars++;
+        
+        // Add to theoretical size calculation
+        size_t type_size = get_nc_type_size(vartype);
+        total_uncompressed_size += varsize * type_size;
         
         if (vartype == NC_FLOAT && varsize > 0) {
             // Check if this variable is a coordinate variable
@@ -415,7 +393,14 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 
-                printf("Variable %s: chunk_size=%zu", varname, chunk_size);
+                // Print chunk shape
+                printf("Variable %s: chunk_size=%zu (", varname, chunk_size);
+                int start_dim = (varndims > 2) ? varndims - 2 : 0;
+                for (int d = start_dim; d < varndims; d++) {
+                    printf("%zu", dims[d]);
+                    if (d < varndims - 1) printf(",");
+                }
+                printf(")");
                 
                 if (varndims <= 2) {
                     // For 1D or 2D variables, process as single chunk
@@ -495,7 +480,8 @@ int main(int argc, char *argv[]) {
     if (input_size > 0 && output_size > 0) {
         printf("  Input file size: %.2f MB\n", input_size / (1024.0 * 1024.0));
         printf("  Output file size: %.2f MB\n", output_size / (1024.0 * 1024.0));
-        printf("  Compression ratio: %.2f:1\n", (double)input_size / output_size);
+        printf("  Achieved Compression ratio: %.2f:1\n", (double)input_size / output_size);
+        printf("  Theoretical Compression ratio: %.2f:1\n", (double)total_uncompressed_size / output_size);
     }
     
     return EXIT_SUCCESS;
