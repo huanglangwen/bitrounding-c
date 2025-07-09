@@ -39,7 +39,17 @@ Comprehensive HDF5 compression analysis tool for detailed size statistics.
 - Calculates compression ratios and file proportions
 - Handles both chunked and non-chunked datasets
 
-### 5. `analyze_hdf_compression.py`
+### 5. `hdf_concat` (C Implementation)
+High-performance HDF5/NetCDF file concatenation tool using raw chunk operations.
+
+**Features:**
+- Concatenates files along unlimited dimensions without recompression
+- Preserves all filters and compression settings from input files
+- Uses HDF5 raw chunk API (H5Dread_chunk/H5Dwrite_chunk) for maximum efficiency
+- Verbose mode (-v) for debugging filter preservation issues
+- Handles chunked datasets with proper alignment
+
+### 6. `analyze_hdf_compression.py`
 Python-based HDF5 compression statistics analyzer using `h5ls`.
 
 **Features:**
@@ -48,7 +58,7 @@ Python-based HDF5 compression statistics analyzer using `h5ls`.
 - Shows disk space usage and compression ratios
 - Formats output in a clean table
 
-### 6. `analyze_bit_precision.py`
+### 7. `analyze_bit_precision.py`
 Python implementation for analyzing bit usage patterns in NetCDF variables.
 
 **Features:**
@@ -167,6 +177,26 @@ source /code/venv/bin/activate
 # Example
 ./hdf_bit_analysis data.nc
 ```
+
+### HDF5 File Concatenation (C Implementation)
+
+```bash
+# Basic concatenation
+./hdf_concat in1.nc in2.nc [in3.nc ...] output.nc
+
+# With verbose debugging output
+./hdf_concat -v in1.nc in2.nc output.nc
+
+# Examples
+./hdf_concat jan.nc feb.nc mar.nc q1.nc
+./hdf_concat -v file1.nc file2.nc concatenated.nc
+```
+
+**Features:**
+- Concatenates along unlimited dimensions without recompression
+- Preserves all metadata, attributes, and compression settings
+- Uses raw chunk operations for maximum performance
+- Verbose mode shows filter preservation details
 
 ### Compression Analysis (Python)
 
