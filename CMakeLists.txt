@@ -23,6 +23,24 @@ if(NOT HDF5_FOUND)
     message(FATAL_ERROR "HDF5 library not found")
 endif()
 
+# Find HDF5 static libraries for hdf_concat
+find_library(HDF5_STATIC_LIB NAMES libhdf5.a
+    PATHS /usr/lib64 /usr/lib /usr/local/lib /lib64
+    NO_DEFAULT_PATH)
+find_library(HDF5_HL_STATIC_LIB NAMES libhdf5_hl.a
+    PATHS /usr/lib64 /usr/lib /usr/local/lib /lib64
+    NO_DEFAULT_PATH)
+
+# Find static zlib for static build
+find_library(ZLIB_STATIC_LIB NAMES libz.a
+    PATHS /usr/lib64 /usr/lib /usr/local/lib /lib64
+    NO_DEFAULT_PATH)
+
+# Find szip library (required by HDF5)
+find_library(SZIP_LIB NAMES libsz.so sz
+    PATHS /usr/lib64 /usr/lib /usr/local/lib /lib64
+    NO_DEFAULT_PATH)
+
 # Find ZLIB
 find_package(ZLIB REQUIRED)
 if(NOT ZLIB_FOUND)
@@ -98,6 +116,47 @@ target_link_libraries(netcdf_bit_rounding
 target_compile_options(netcdf_bit_rounding PRIVATE ${NETCDF_CFLAGS_OTHER})
 target_link_directories(netcdf_bit_rounding PRIVATE ${NETCDF_LIBRARY_DIRS})
 
+# HDF5 concatenation executable
+add_executable(hdf_concat
+    ${SRCDIR}/hdf_concat.c
+)
+
+# Link HDF5 statically for hdf_concat
+if(HDF5_STATIC_LIB AND HDF5_HL_STATIC_LIB)
+    message(STATUS "Using static HDF5 libraries for hdf_concat")
+    if(ZLIB_STATIC_LIB)
+        message(STATUS "Using static zlib for hdf_concat")
+        target_link_libraries(hdf_concat
+            ${HDF5_STATIC_LIB}
+            ${HDF5_HL_STATIC_LIB}
+            ${ZLIB_STATIC_LIB}
+            ${SZIP_LIB}
+            m
+            dl
+            pthread
+        )
+    else()
+        message(STATUS "Using shared zlib for hdf_concat")
+        target_link_libraries(hdf_concat
+            ${HDF5_STATIC_LIB}
+            ${HDF5_HL_STATIC_LIB}
+            ${ZLIB_LIBRARIES}
+            ${SZIP_LIB}
+            m
+            dl
+            pthread
+        )
+    endif()
+else()
+    message(STATUS "Static HDF5 libraries not found, using shared libraries for hdf_concat")
+    target_link_libraries(hdf_concat
+        ${HDF5_LIBRARIES}
+        ${ZLIB_LIBRARIES}
+        m
+        dl
+    )
+endif()
+
 # Set RPATH for runtime library location
 set_target_properties(netcdf_bit_analysis PROPERTIES
     INSTALL_RPATH_USE_LINK_PATH TRUE
@@ -111,6 +170,9 @@ set_target_properties(hdf_size_stat PROPERTIES
 set_target_properties(netcdf_bit_rounding PROPERTIES
     INSTALL_RPATH_USE_LINK_PATH TRUE
 )
+set_target_properties(hdf_concat PROPERTIES
+    INSTALL_RPATH_USE_LINK_PATH TRUE
+)
 
 # Debug and Release configurations
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -122,7 +184,7 @@ else()
 endif()
 
 # Installation rules
-install(TARGETS netcdf_bit_analysis hdf_bit_analysis hdf_size_stat netcdf_bit_rounding
+install(TARGETS netcdf_bit_analysis hdf_bit_analysis hdf_size_stat netcdf_bit_rounding hdf_concat
     RUNTIME DESTINATION bin
 )
 
