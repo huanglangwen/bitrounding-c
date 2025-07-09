@@ -226,7 +226,7 @@ int read_hdf5_dataset_data(hdf5_dataset_info_t *dataset, void **data, dtype_t *d
     return 0;
 }
 
-int read_hdf5_2d_slice(hdf5_dataset_info_t *dataset, size_t slice_index, void **data, dtype_t *dtype) {
+int read_hdf5_2d_slice(hdf5_dataset_info_t *dataset, hsize_t *slice_indices, void **data, dtype_t *dtype) {
     if (dataset->ndims < 3) {
         return -1;
     }
@@ -257,16 +257,21 @@ int read_hdf5_2d_slice(hdf5_dataset_info_t *dataset, size_t slice_index, void **
     
     hid_t file_space = H5Dget_space(dataset->dataset_id);
     
-    /* Define hyperslab */
+    /* Define hyperslab - select a 2D slice from the last 2 dimensions */
     hsize_t start[dataset->ndims];
     hsize_t count[dataset->ndims];
     
-    for (int i = 0; i < dataset->ndims; i++) {
-        start[i] = 0;
-        count[i] = dataset->dims[i];
+    /* Set indices for all dimensions except the last 2 */
+    for (int i = 0; i < dataset->ndims - 2; i++) {
+        start[i] = slice_indices[i];
+        count[i] = 1;
     }
-    start[0] = slice_index;
-    count[0] = 1;
+    
+    /* Set full size for the last 2 dimensions (the 2D slice) */
+    start[dataset->ndims-2] = 0;
+    start[dataset->ndims-1] = 0;
+    count[dataset->ndims-2] = dataset->dims[dataset->ndims-2];
+    count[dataset->ndims-1] = dataset->dims[dataset->ndims-1];
     
     if (H5Sselect_hyperslab(file_space, H5S_SELECT_SET, start, NULL, count, NULL) < 0) {
         free(*data);
@@ -422,17 +427,39 @@ int main(int argc, char *argv[]) {
             printf("  %-43s %-20s %-50s\n", "Slice", shape_str, "Bit Pattern (MSB->LSB)");
             
             /* Analyze each 2D slice */
-            size_t num_slices = dataset->dims[0];
             char slice_shape_str[256];
             format_hdf5_shape_string(&dataset->dims[dataset->ndims-2], 2, slice_shape_str);
             
-            for (size_t slice_idx = 0; slice_idx < num_slices; slice_idx++) {
+            /* Calculate total number of slices (product of all dimensions except last 2) */
+            size_t total_slices = 1;
+            for (int dim = 0; dim < dataset->ndims - 2; dim++) {
+                total_slices *= dataset->dims[dim];
+            }
+            
+            /* Iterate through all combinations of indices */
+            hsize_t slice_indices[dataset->ndims - 2];
+            for (int i = 0; i < dataset->ndims - 2; i++) {
+                slice_indices[i] = 0;
+            }
+            
+            for (size_t slice_num = 0; slice_num < total_slices; slice_num++) {
                 void *slice_data = NULL;
                 dtype_t slice_dtype;
                 
-                if (read_hdf5_2d_slice(dataset, slice_idx, &slice_data, &slice_dtype) != 0) {
+                if (read_hdf5_2d_slice(dataset, slice_indices, &slice_data, &slice_dtype) != 0) {
                     fprintf(stderr, "Warning: Cannot read slice %zu of dataset '%s'\n", 
-                            slice_idx, dataset->name);
+                            slice_num, dataset->name);
+                    
+                    /* Increment indices for next iteration */
+                    int carry = 1;
+                    for (int dim = dataset->ndims - 3; dim >= 0 && carry; dim--) {
+                        slice_indices[dim]++;
+                        if (slice_indices[dim] < dataset->dims[dim]) {
+                            carry = 0;
+                        } else {
+                            slice_indices[dim] = 0;
+                        }
+                    }
                     continue;
                 }
                 
@@ -441,12 +468,34 @@ int main(int argc, char *argv[]) {
                 int status = analyze_data_bits(slice_data, slice_size, slice_dtype, &result);
                 
                 if (status == 0) {
-                    char slice_name[64];
-                    snprintf(slice_name, sizeof(slice_name), "[%zu,:,:]", slice_idx);
+                    /* Build slice name string */
+                    char slice_name[128];
+                    strcpy(slice_name, "[");
+                    for (int dim = 0; dim < dataset->ndims - 2; dim++) {
+                        char dim_str[16];
+                        snprintf(dim_str, sizeof(dim_str), "%llu", (unsigned long long)slice_indices[dim]);
+                        strcat(slice_name, dim_str);
+                        if (dim < dataset->ndims - 3) {
+                            strcat(slice_name, ",");
+                        }
+                    }
+                    strcat(slice_name, ",:,:]");
+                    
                     print_slice_result(slice_name, slice_shape_str, result.pattern);
                 }
                 
                 free(slice_data);
+                
+                /* Increment indices for next iteration */
+                int carry = 1;
+                for (int dim = dataset->ndims - 3; dim >= 0 && carry; dim--) {
+                    slice_indices[dim]++;
+                    if (slice_indices[dim] < dataset->dims[dim]) {
+                        carry = 0;
+                    } else {
+                        slice_indices[dim] = 0;
+                    }
+                }
             }
             
         } else {

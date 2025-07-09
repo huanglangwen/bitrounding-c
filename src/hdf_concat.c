@@ -175,15 +175,65 @@ static void copy_raw_chunks(hid_t in_ds, hid_t out_ds,
         unsigned read_filt_mask = filt_mask;
         H5Dread_chunk(in_ds, H5P_DEFAULT, coord, &read_filt_mask, buf);
 
-        /* Shift chunk coordinate by record offset, ensuring alignment */
-        coord[rec_dim] += rec_offset;
+        /* Get current dataset dimensions to check if we need normal data writing */
+        hid_t in_space = H5Dget_space(in_ds);
+        hsize_t in_dims[MAX_RANK];
+        H5Sget_simple_extent_dims(in_space, in_dims, NULL);
+        H5Sclose(in_space);
         
-        /* Ensure coordinate is aligned to chunk boundary */
-        coord[rec_dim] = (coord[rec_dim] / chunk_dims[rec_dim]) * chunk_dims[rec_dim];
-        
-        /* Write chunk with the filter mask from the read operation */
-        H5Dwrite_chunk(out_ds, H5P_DEFAULT, read_filt_mask,
-                       coord, comp_sz, buf);
+        /* If data size is smaller than chunk size, use normal data writing instead of chunk writing */
+        if (in_dims[rec_dim] < chunk_dims[rec_dim]) {
+            if (verbose) {
+                fprintf(stderr, "[debug] Using normal data writing: rec_dim=%d, rec_offset=%llu, in_dims[%d]=%llu, chunk_dims[%d]=%llu\n", 
+                        rec_dim, (unsigned long long)rec_offset, rec_dim, (unsigned long long)in_dims[rec_dim], 
+                        rec_dim, (unsigned long long)chunk_dims[rec_dim]);
+            }
+            /* Read data normally and write to the correct offset */
+            hid_t mem_space = H5Screate_simple(ndims, in_dims, NULL);
+            hid_t file_space = H5Dget_space(out_ds);
+            
+            /* Set hyperslab for writing at the correct offset */
+            hsize_t start[MAX_RANK], count[MAX_RANK];
+            for (int i = 0; i < ndims; i++) {
+                start[i] = (i == rec_dim) ? rec_offset : 0;
+                count[i] = in_dims[i];
+            }
+            H5Sselect_hyperslab(file_space, H5S_SELECT_SET, start, NULL, count, NULL);
+            
+            /* Allocate buffer for uncompressed data */
+            hid_t dtype = H5Dget_type(in_ds);
+            size_t type_size = H5Tget_size(dtype);
+            size_t total_elements = 1;
+            for (int i = 0; i < ndims; i++) {
+                total_elements *= in_dims[i];
+            }
+            void *data_buf = malloc(total_elements * type_size);
+            
+            /* Read data normally from input */
+            H5Dread(in_ds, dtype, mem_space, H5S_ALL, H5P_DEFAULT, data_buf);
+            
+            /* Write data to output at correct offset */
+            H5Dwrite(out_ds, dtype, mem_space, file_space, H5P_DEFAULT, data_buf);
+            
+            /* Clean up */
+            free(data_buf);
+            H5Tclose(dtype);
+            H5Sclose(mem_space);
+            H5Sclose(file_space);
+        } else {
+            /* Normal chunk writing for large datasets */
+            hsize_t original_coord = coord[rec_dim];
+            coord[rec_dim] += rec_offset;
+            
+            if (verbose) {
+                fprintf(stderr, "[debug] Chunk writing: rec_dim=%d, rec_offset=%llu, original_coord=%llu, new_coord=%llu, chunk_dims[%d]=%llu\n", 
+                        rec_dim, (unsigned long long)rec_offset, (unsigned long long)original_coord, 
+                        (unsigned long long)coord[rec_dim], rec_dim, (unsigned long long)chunk_dims[rec_dim]);
+            }
+            
+            H5Dwrite_chunk(out_ds, H5P_DEFAULT, read_filt_mask,
+                           coord, comp_sz, buf);
+        }
         free(buf);
     }
 }
