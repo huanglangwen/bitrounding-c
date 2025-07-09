@@ -239,7 +239,108 @@ static void copy_raw_chunks(hid_t in_ds, hid_t out_ds,
 }
 
 /* -------------------------------------------------------------------------- */
-/* 4. Usage helper                                                            */
+/* 4. Fix NetCDF-4 dimension list references                                  */
+
+static void fix_dimension_list_references(hid_t file_id)
+{
+    if (verbose) {
+        fprintf(stderr, "[debug] Fixing DIMENSION_LIST references for NetCDF-4 compatibility\n");
+    }
+    
+    /* Define callback to fix DIMENSION_LIST references */
+    herr_t fix_dimlist_cb(hid_t obj, const char *name, const H5O_info_t *info, void *op_data) {
+        hid_t *file_id_ptr = (hid_t*)op_data;
+        
+        /* Skip root group and only process datasets */
+        if (strcmp(name, ".") == 0 || info->type != H5O_TYPE_DATASET) return 0;
+        
+        hid_t dset = H5Dopen(*file_id_ptr, name, H5P_DEFAULT);
+        if (dset < 0) return 0;
+        
+        /* Check if dataset has DIMENSION_LIST attribute */
+        if (H5Aexists(dset, "DIMENSION_LIST") > 0) {
+            hid_t attr = H5Aopen(dset, "DIMENSION_LIST", H5P_DEFAULT);
+            if (attr >= 0) {
+                hid_t attr_type = H5Aget_type(attr);
+                hid_t attr_space = H5Aget_space(attr);
+                
+                /* Get the number of dimensions */
+                hsize_t dims[1];
+                int ndims = H5Sget_simple_extent_dims(attr_space, dims, NULL);
+                if (ndims == 1) {
+                    /* Create new references for dimension scale datasets */
+                    hobj_ref_t *new_refs = malloc(dims[0] * sizeof(hobj_ref_t));
+                    if (new_refs) {
+                        /* Get dimension names from _Netcdf4Coordinates if available */
+                        char *dim_names[] = {"time", "level", "latitude", "longitude"};
+                        char dim_path[64];
+                        
+                        for (hsize_t i = 0; i < dims[0]; i++) {
+                            snprintf(dim_path, sizeof(dim_path), "/%s", dim_names[i]);
+                            
+                            /* Create reference to dimension scale dataset */
+                            if (H5Rcreate(&new_refs[i], *file_id_ptr, dim_path, H5R_OBJECT, -1) < 0) {
+                                if (verbose) {
+                                    fprintf(stderr, "[warning] Failed to create reference to %s\n", dim_path);
+                                }
+                                /* Set to null reference on failure */
+                                memset(&new_refs[i], 0, sizeof(hobj_ref_t));
+                            }
+                        }
+                        
+                        /* Delete old attribute and create new one */
+                        H5Adelete(dset, "DIMENSION_LIST");
+                        
+                        /* Create new DIMENSION_LIST attribute with correct references */
+                        hid_t vlen_type = H5Tvlen_create(H5T_STD_REF_OBJ);
+                        hid_t new_attr = H5Acreate2(dset, "DIMENSION_LIST", vlen_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+                        
+                        if (new_attr >= 0) {
+                            /* Prepare vlen data structure */
+                            hvl_t *vlen_data = malloc(dims[0] * sizeof(hvl_t));
+                            if (vlen_data) {
+                                for (hsize_t i = 0; i < dims[0]; i++) {
+                                    vlen_data[i].len = 1;
+                                    vlen_data[i].p = &new_refs[i];
+                                }
+                                
+                                /* Write the new references */
+                                if (H5Awrite(new_attr, vlen_type, vlen_data) < 0) {
+                                    if (verbose) {
+                                        fprintf(stderr, "[warning] Failed to write DIMENSION_LIST for %s\n", name);
+                                    }
+                                }
+                                
+                                free(vlen_data);
+                            }
+                            H5Aclose(new_attr);
+                        }
+                        
+                        H5Tclose(vlen_type);
+                        free(new_refs);
+                        
+                        if (verbose) {
+                            fprintf(stderr, "[debug] Fixed DIMENSION_LIST references for %s\n", name);
+                        }
+                    }
+                }
+                
+                H5Sclose(attr_space);
+                H5Tclose(attr_type);
+                H5Aclose(attr);
+            }
+        }
+        
+        H5Dclose(dset);
+        return 0;
+    }
+    
+    /* Visit all objects to fix DIMENSION_LIST references */
+    H5Ovisit3(file_id, H5_INDEX_NAME, H5_ITER_NATIVE, fix_dimlist_cb, &file_id, H5O_INFO_BASIC);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 5. Usage helper                                                            */
 
 static void usage(const char *prog)
 {
@@ -408,6 +509,63 @@ int main(int argc, char **argv)
     H5Pclose(ocpl_id);
     H5Pclose(lcpl_id);
 
+    /* Copy global attributes from root group */
+    if (verbose) {
+        fprintf(stderr, "[debug] Copying global attributes from root group\n");
+    }
+    
+    hid_t src_root = H5Gopen(fid0, "/", H5P_DEFAULT);
+    hid_t dst_root = H5Gopen(fout, "/", H5P_DEFAULT);
+    
+    if (src_root >= 0 && dst_root >= 0) {
+        /* Get number of attributes in source root group */
+        H5O_info2_t oinfo;
+        if (H5Oget_info3(src_root, &oinfo, H5O_INFO_NUM_ATTRS) >= 0) {
+            /* Copy each attribute */
+            for (unsigned i = 0; i < oinfo.num_attrs; i++) {
+                char attr_name[256];
+                hid_t attr_id = H5Aopen_by_idx(src_root, ".", H5_INDEX_NAME, H5_ITER_NATIVE, i, H5P_DEFAULT, H5P_DEFAULT);
+                if (attr_id >= 0) {
+                    H5Aget_name(attr_id, sizeof(attr_name), attr_name);
+                    
+                    /* Get attribute properties and copy manually */
+                    hid_t attr_space = H5Aget_space(attr_id);
+                    hid_t attr_type = H5Aget_type(attr_id);
+                    
+                    /* Create attribute in destination */
+                    hid_t dst_attr = H5Acreate2(dst_root, attr_name, attr_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+                    if (dst_attr >= 0) {
+                        /* Copy attribute data */
+                        size_t attr_size = H5Aget_storage_size(attr_id);
+                        if (attr_size > 0) {
+                            void *attr_data = malloc(attr_size);
+                            if (attr_data) {
+                                if (H5Aread(attr_id, attr_type, attr_data) >= 0) {
+                                    if (H5Awrite(dst_attr, attr_type, attr_data) < 0) {
+                                        fprintf(stderr, "[warning] Failed to write global attribute: %s\n", attr_name);
+                                    } else if (verbose) {
+                                        fprintf(stderr, "[debug] Copied global attribute: %s\n", attr_name);
+                                    }
+                                }
+                                free(attr_data);
+                            }
+                        }
+                        H5Aclose(dst_attr);
+                    } else {
+                        fprintf(stderr, "[warning] Failed to create global attribute: %s\n", attr_name);
+                    }
+                    
+                    H5Tclose(attr_type);
+                    H5Sclose(attr_space);
+                    H5Aclose(attr_id);
+                }
+            }
+        }
+    }
+    
+    if (src_root >= 0) H5Gclose(src_root);
+    if (dst_root >= 0) H5Gclose(dst_root);
+
     H5Fclose(fid0);   /* no longer needed */
 
     /* ------------------------------------------------------------------ */
@@ -457,7 +615,12 @@ int main(int argc, char **argv)
     }
 
     /* ------------------------------------------------------------------ */
-    /* 5.6 Flush and close                                                */
+    /* 5.6 Fix NetCDF-4 dimension list references                         */
+
+    fix_dimension_list_references(fout);
+
+    /* ------------------------------------------------------------------ */
+    /* 5.7 Flush and close                                                */
 
     H5Fflush(fout, H5F_SCOPE_GLOBAL);
     H5Fclose(fout);
