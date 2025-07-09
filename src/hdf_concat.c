@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <time.h>
 #include <hdf5.h>
 
 #define MAX_VARS     2048           /* bump if your files have >2k datasets */
@@ -340,7 +341,142 @@ static void fix_dimension_list_references(hid_t file_id)
 }
 
 /* -------------------------------------------------------------------------- */
-/* 5. Usage helper                                                            */
+/* 5. Update NetCDF history attribute                                         */
+
+static void update_history_attribute(hid_t file_id, int argc, char **argv)
+{
+    hid_t root_group = H5Gopen(file_id, "/", H5P_DEFAULT);
+    if (root_group < 0) {
+        if (verbose) {
+            fprintf(stderr, "[warning] Could not open root group for history update\n");
+        }
+        return;
+    }
+    
+    /* Build command string */
+    char command[2048] = "";
+    int pos = 0;
+    for (int i = 0; i < argc && pos < sizeof(command) - 1; i++) {
+        if (i > 0) {
+            command[pos++] = ' ';
+        }
+        int len = strlen(argv[i]);
+        if (pos + len < sizeof(command) - 1) {
+            strcpy(command + pos, argv[i]);
+            pos += len;
+        }
+    }
+    
+    /* Add timestamp */
+    time_t now = time(NULL);
+    struct tm *tm_info = gmtime(&now);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S UTC", tm_info);
+    
+    char new_entry[2200];
+    snprintf(new_entry, sizeof(new_entry), "%s: %s\n", timestamp, command);
+    
+    /* Check if history attribute exists */
+    htri_t attr_exists = H5Aexists(root_group, "history");
+    
+    if (attr_exists > 0) {
+        /* Read existing history */
+        hid_t attr = H5Aopen(root_group, "history", H5P_DEFAULT);
+        if (attr >= 0) {
+            hid_t attr_type = H5Aget_type(attr);
+            hid_t attr_space = H5Aget_space(attr);
+            
+            size_t attr_size = H5Aget_storage_size(attr);
+            if (attr_size > 0) {
+                char *existing_history = malloc(attr_size + 1);
+                if (existing_history) {
+                    if (H5Aread(attr, attr_type, existing_history) >= 0) {
+                        existing_history[attr_size] = '\0';
+                        
+                        /* Create new history string with command prepended */
+                        size_t new_size = strlen(new_entry) + strlen(existing_history) + 1;
+                        char *new_history = malloc(new_size);
+                        if (new_history) {
+                            snprintf(new_history, new_size, "%s%s", new_entry, existing_history);
+                            
+                            /* Delete old attribute */
+                            H5Aclose(attr);
+                            H5Adelete(root_group, "history");
+                            
+                            /* Create new attribute with updated history */
+                            hid_t str_type = H5Tcopy(H5T_C_S1);
+                            H5Tset_size(str_type, strlen(new_history));
+                            H5Tset_strpad(str_type, H5T_STR_NULLTERM);
+                            
+                            hid_t scalar_space = H5Screate(H5S_SCALAR);
+                            hid_t new_attr = H5Acreate2(root_group, "history", str_type, scalar_space, H5P_DEFAULT, H5P_DEFAULT);
+                            
+                            if (new_attr >= 0) {
+                                if (H5Awrite(new_attr, str_type, new_history) >= 0) {
+                                    if (verbose) {
+                                        fprintf(stderr, "[debug] Updated history attribute\n");
+                                    }
+                                } else {
+                                    if (verbose) {
+                                        fprintf(stderr, "[warning] Failed to write updated history\n");
+                                    }
+                                }
+                                H5Aclose(new_attr);
+                            } else {
+                                if (verbose) {
+                                    fprintf(stderr, "[warning] Failed to create new history attribute\n");
+                                }
+                            }
+                            
+                            H5Sclose(scalar_space);
+                            H5Tclose(str_type);
+                            free(new_history);
+                        }
+                    }
+                    free(existing_history);
+                }
+            } else {
+                H5Aclose(attr);
+            }
+            
+            H5Tclose(attr_type);
+            H5Sclose(attr_space);
+        }
+    } else {
+        /* Create new history attribute */
+        hid_t str_type = H5Tcopy(H5T_C_S1);
+        H5Tset_size(str_type, strlen(new_entry));
+        H5Tset_strpad(str_type, H5T_STR_NULLTERM);
+        
+        hid_t scalar_space = H5Screate(H5S_SCALAR);
+        hid_t attr = H5Acreate2(root_group, "history", str_type, scalar_space, H5P_DEFAULT, H5P_DEFAULT);
+        
+        if (attr >= 0) {
+            if (H5Awrite(attr, str_type, new_entry) >= 0) {
+                if (verbose) {
+                    fprintf(stderr, "[debug] Created new history attribute\n");
+                }
+            } else {
+                if (verbose) {
+                    fprintf(stderr, "[warning] Failed to write new history\n");
+                }
+            }
+            H5Aclose(attr);
+        } else {
+            if (verbose) {
+                fprintf(stderr, "[warning] Failed to create history attribute\n");
+            }
+        }
+        
+        H5Sclose(scalar_space);
+        H5Tclose(str_type);
+    }
+    
+    H5Gclose(root_group);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 6. Usage helper                                                            */
 
 static void usage(const char *prog)
 {
@@ -620,7 +756,12 @@ int main(int argc, char **argv)
     fix_dimension_list_references(fout);
 
     /* ------------------------------------------------------------------ */
-    /* 5.7 Flush and close                                                */
+    /* 5.7 Update history attribute                                       */
+
+    update_history_attribute(fout, argc, argv);
+
+    /* ------------------------------------------------------------------ */
+    /* 5.8 Flush and close                                                */
 
     H5Fflush(fout, H5F_SCOPE_GLOBAL);
     H5Fclose(fout);
